@@ -1,0 +1,97 @@
+import { useCallback, useEffect, useState } from 'react';
+import { clearSession, loadSession, saveSession, socket, syncClock } from '../socket/socket';
+import { RoomState } from '../types';
+import { unlockAudio } from '../utils/sound';
+
+interface Ack {
+  ok: boolean;
+  error?: string;
+  roomId?: string;
+  token?: string;
+}
+
+export function useRoom() {
+  const [state, setState] = useState<RoomState | null>(null);
+  const [text, setText] = useState('');
+  const [connected, setConnected] = useState(socket.connected);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onConnect = async () => {
+      setConnected(true);
+      await syncClock();
+      const session = loadSession();
+      if (!session) {
+        setReady(true);
+        return;
+      }
+      socket.emit('room:rejoin', session, (res: Ack) => {
+        if (!res.ok) {
+          clearSession();
+          setState(null);
+        }
+        setReady(true);
+      });
+    };
+    const onDisconnect = () => setConnected(false);
+    const onState = (s: RoomState) => setState(s);
+    const onText = (t: string) => setText(t);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('room:state', onState);
+    socket.on('game:text', onText);
+    if (socket.connected) void onConnect();
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('room:state', onState);
+      socket.off('game:text', onText);
+    };
+  }, []);
+
+  const createRoom = useCallback(() => {
+    unlockAudio();
+    setError(null);
+    socket.emit('room:create', (res: Ack) => {
+      if (res.ok && res.roomId && res.token) saveSession({ roomId: res.roomId, token: res.token });
+      else setError(res.error ?? 'Could not create room');
+    });
+  }, []);
+
+  const joinRoom = useCallback((code: string) => {
+    unlockAudio();
+    setError(null);
+    socket.emit('room:join', { roomId: code }, (res: Ack) => {
+      if (res.ok && res.roomId && res.token) saveSession({ roomId: res.roomId, token: res.token });
+      else setError(res.error ?? 'Could not join room');
+    });
+  }, []);
+
+  const updateSettings = useCallback(
+    (patch: { winningDifference?: number; p1Advantage?: number }) => socket.emit('room:settings', patch),
+    []
+  );
+  const startGame = useCallback(() => {
+    unlockAudio();
+    socket.emit('game:start');
+  }, []);
+  const sendProgress = useCallback(
+    (progress: number, errors: number) => socket.emit('game:progress', { progress, errors }),
+    []
+  );
+  const rematch = useCallback(() => socket.emit('game:rematch'), []);
+  const backToLobby = useCallback(() => socket.emit('room:lobby'), []);
+  const leave = useCallback(() => {
+    socket.emit('room:leave');
+    clearSession();
+    setState(null);
+    setText('');
+  }, []);
+
+  return {
+    state, text, connected, ready, error,
+    createRoom, joinRoom, updateSettings, startGame, sendProgress, rematch, backToLobby, leave,
+  };
+}
