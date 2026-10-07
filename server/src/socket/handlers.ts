@@ -11,8 +11,8 @@ const BURST_ALLOWANCE = 40;
 const EMPTY_ROOM_TTL_MS = 2 * 60 * 1000;
 const SLOTS: Slot[] = [1, 2];
 
-const reply = (ack: unknown, payload: object) => {
-  if (typeof ack === 'function') (ack as (p: object) => void)(payload);
+const reply = (ack: unknown, payload: unknown) => {
+  if (typeof ack === 'function') (ack as (p: unknown) => void)(payload);
 };
 
 export function registerSocketHandlers(io: Server): void {
