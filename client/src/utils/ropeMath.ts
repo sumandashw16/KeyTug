@@ -1,21 +1,21 @@
-import { Slot } from '../types';
+import { PublicPlayer, Team } from '../types';
 
 /**
  * Isolated rope logic. KEEP IN SYNC with server/src/game/logic.ts
  *
- * Position is "percent from the left" (P1 side = 0, P2 side = 100).
- *   start    = 100 - p1Advantage        (30/70 => starts at 70, nearer P2's goal)
- *   position = start - difference * (50 / winningDifference)
+ * Team score = sum of (weight * correct characters).
+ * Position is "percent from the left" (Team A = 0, Team B = 100):
+ *   position = 50 - (scoreA - scoreB) * (50 / winningDifference)
  */
-export const startPosition = (p1Advantage: number) => 100 - p1Advantage;
+type Scorable = Pick<PublicPlayer, 'team' | 'weight' | 'progress'>;
 
-export function ropePosition(difference: number, winningDifference: number, p1Advantage: number): number {
-  const pos = startPosition(p1Advantage) - difference * (50 / winningDifference);
-  return Math.min(100, Math.max(0, pos));
+export const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export function teamScore(players: Scorable[], team: Team): number {
+  return players.reduce((sum, p) => (p.team === team ? sum + p.weight * p.progress : sum), 0);
 }
 
-export function requiredLead(slot: Slot, winningDifference: number, p1Advantage: number): number {
-  const p2Advantage = 100 - p1Advantage;
-  const raw = slot === 1 ? (winningDifference * p2Advantage) / 50 : (winningDifference * p1Advantage) / 50;
-  return Math.max(1, Math.ceil(raw));
+export function ropePosition(difference: number, winningDifference: number): number {
+  const pos = 50 - difference * (50 / winningDifference);
+  return Math.min(100, Math.max(0, pos));
 }

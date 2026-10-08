@@ -1,19 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import Rope from './Rope';
-import { requiredLead, startPosition } from '../utils/ropeMath';
 
 interface Props {
   winningDifference: number;
-  p1Advantage: number;
   editable: boolean;
-  onChange: (patch: { winningDifference?: number; p1Advantage?: number }) => void;
+  onChange: (patch: { winningDifference?: number }) => void;
 }
 
 const PRESETS = [25, 50, 100, 200, 500, 1000];
-const BALANCES = [20, 30, 40, 50, 60, 70, 80]; // P1 share
 
-export default function GameSettings({ winningDifference, p1Advantage, editable, onChange }: Props) {
-  const p2Advantage = 100 - p1Advantage;
+export default function GameSettings({ winningDifference, editable, onChange }: Props) {
   const [custom, setCustom] = useState(String(winningDifference));
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -30,7 +25,7 @@ export default function GameSettings({ winningDifference, p1Advantage, editable,
   return (
     <div className={`settings ${editable ? '' : 'readonly'}`}>
       <div className="setting-block">
-        <label>CHARACTERS AHEAD TO WIN</label>
+        <label>WEIGHTED POINTS AHEAD TO WIN</label>
         <div className="chips">
           {PRESETS.map((n) => (
             <button
@@ -54,50 +49,10 @@ export default function GameSettings({ winningDifference, p1Advantage, editable,
             onBlur={() => setCustom(String(winningDifference))}
           />
         </div>
-      </div>
-
-      <div className="setting-block">
-        <label>ROPE BALANCE (manual handicap)</label>
-        <div className="balance-readout">
-          <span className="p1">PLAYER 1 ADVANTAGE <b>{p1Advantage}%</b></span>
-          <span className="p2">PLAYER 2 ADVANTAGE <b>{p2Advantage}%</b></span>
-        </div>
-        <input
-          type="range"
-          min={10}
-          max={90}
-          step={1}
-          value={p1Advantage}
-          disabled={!editable}
-          onChange={(e) => onChange({ p1Advantage: Number(e.target.value) })}
-        />
-        <div className="chips">
-          {BALANCES.map((v) => (
-            <button
-              key={v}
-              disabled={!editable}
-              className={`chip-btn ${p1Advantage === v ? 'on' : ''}`}
-              onClick={() => onChange({ p1Advantage: v })}
-            >
-              {v} / {100 - v}
-            </button>
-          ))}
-        </div>
-        <p className="hint">Higher % = bigger head start. 30 / 70 pulls the starting point toward Player 2.</p>
-      </div>
-
-      <div className="preview">
-        <Rope
-          compact
-          showLead={false}
-          lead={0}
-          position={startPosition(p1Advantage)}
-          startPosition={startPosition(p1Advantage)}
-        />
-        <div className="rope-meta">
-          <span className="p1">P1 needs +{requiredLead(1, winningDifference, p1Advantage)}</span>
-          <span className="p2">P2 needs +{requiredLead(2, winningDifference, p1Advantage)}</span>
-        </div>
+        <p className="hint">
+          Each correct character adds its player's weight to their team's score. First team to lead by
+          this many points wins.
+        </p>
       </div>
     </div>
   );

@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import Rope from '../components/Rope';
 
 interface Props {
-  onCreate: () => void;
-  onJoin: (code: string) => void;
+  onCreate: (name: string) => void;
+  onJoin: (code: string, name: string) => void;
   error: string | null;
 }
 
 export default function Home({ onCreate, onJoin, error }: Props) {
   const [joining, setJoining] = useState(false);
   const [code, setCode] = useState('');
+  const [name, setName] = useState('');
   const [pos, setPos] = useState(50);
 
   // decorative ambient rope motion
@@ -18,7 +19,7 @@ export default function Home({ onCreate, onJoin, error }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  const submit = () => code.trim().length > 0 && onJoin(code.trim().toUpperCase());
+  const submit = () => code.trim().length > 0 && onJoin(code.trim().toUpperCase(), name);
 
   return (
     <div className="screen home">
@@ -28,12 +29,20 @@ export default function Home({ onCreate, onJoin, error }: Props) {
       <p className="subtitle">Type faster. Stay accurate. Pull harder.</p>
 
       <div className="home-rope">
-        <Rope position={pos} startPosition={50} lead={0} showLead={false} />
+        <Rope position={pos} lead={0} showLead={false} />
       </div>
+
+      <input
+        className="name-input"
+        maxLength={14}
+        placeholder="YOUR NAME"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
 
       {!joining ? (
         <div className="row">
-          <button className="btn primary" onClick={onCreate}>CREATE GAME</button>
+          <button className="btn primary" onClick={() => onCreate(name)}>CREATE GAME</button>
           <button className="btn" onClick={() => setJoining(true)}>JOIN GAME</button>
         </div>
       ) : (

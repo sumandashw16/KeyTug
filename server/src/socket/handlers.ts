@@ -1,26 +1,31 @@
 import { Server, Socket } from 'socket.io';
 import { randomUUID } from 'crypto';
-import { checkWinner, clampAdvantage, clampWinningDifference } from '../game/logic';
-import { createPlayer, createRoom, resetToLobby, rooms, toState } from '../game/rooms';
+import { checkWinner, clampWeight, clampWinningDifference } from '../game/logic';
+import { createPlayer, createRoom, hostOf, resetToLobby, rooms, toState } from '../game/rooms';
 import { generateText } from '../game/text';
-import { Player, Room, Slot } from '../game/types';
+import { Player, Room, Team } from '../game/types';
 
 const COUNTDOWN_MS = 3000;
-const MAX_CPS = 25; // plausibility cap: 25 chars/sec (~300 WPM) sustained
+const MAX_CPS = 25; // plausibility cap per player: 25 chars/sec
 const BURST_ALLOWANCE = 40;
 const EMPTY_ROOM_TTL_MS = 2 * 60 * 1000;
-const SLOTS: Slot[] = [1, 2];
+const MAX_PLAYERS = 16;
+const TEAMS: Team[] = [1, 2];
 
 const reply = (ack: unknown, payload: unknown) => {
   if (typeof ack === 'function') (ack as (p: unknown) => void)(payload);
 };
 
+const cleanName = (raw: unknown, fallback: string) => {
+  const s = String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 14);
+  return s || fallback;
+};
+
 export function registerSocketHandlers(io: Server): void {
   // ---------- helpers ----------
   const broadcast = (room: Room) => {
-    for (const slot of SLOTS) {
-      const p = room.players[slot];
-      if (p && p.connected && p.socketId) io.to(p.socketId).emit('room:state', toState(room, slot));
+    for (const p of room.players) {
+      if (p.connected && p.socketId) io.to(p.socketId).emit('room:state', toState(room, p.id));
     }
   };
 
@@ -38,27 +43,30 @@ export function registerSocketHandlers(io: Server): void {
   const updateCleanup = (room: Room) => {
     if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
     room.cleanupTimer = null;
-    const anyConnected = SLOTS.some((s) => room.players[s]?.connected);
-    if (!anyConnected) room.cleanupTimer = setTimeout(() => destroyRoom(room), EMPTY_ROOM_TTL_MS);
-  };
-
-  const normalizeSlots = (room: Room) => {
-    if (!room.players[1] && room.players[2]) {
-      room.players[1] = room.players[2];
-      room.players[2] = null;
+    if (!room.players.some((p) => p.connected)) {
+      room.cleanupTimer = setTimeout(() => destroyRoom(room), EMPTY_ROOM_TTL_MS);
     }
   };
+
+  /** Both teams need at least one connected player. */
+  const teamsReady = (room: Room) =>
+    TEAMS.every((t) => room.players.some((p) => p.team === t && p.connected));
+
+  const smallerTeam = (room: Room): Team => {
+    const a = room.players.filter((p) => p.team === 1).length;
+    const b = room.players.filter((p) => p.team === 2).length;
+    return b < a ? 2 : 1;
+  };
+
+  const isHost = (room: Room, player: Player) => hostOf(room)?.id === player.id;
 
   const findBySocket = (socket: Socket): { room: Room; player: Player } | null => {
     const roomId = socket.data.roomId as string | undefined;
     if (!roomId) return null;
     const room = rooms.get(roomId);
     if (!room) return null;
-    for (const s of SLOTS) {
-      const p = room.players[s];
-      if (p && p.socketId === socket.id) return { room, player: p };
-    }
-    return null;
+    const player = room.players.find((p) => p.socketId === socket.id);
+    return player ? { room, player } : null;
   };
 
   const attach = (socket: Socket, room: Room, player: Player) => {
@@ -72,7 +80,8 @@ export function registerSocketHandlers(io: Server): void {
   const markDisconnected = (room: Room, player: Player) => {
     player.connected = false;
     player.socketId = null;
-    if (room.status === 'countdown' || room.status === 'playing') {
+    // Game continues unless a whole team is gone.
+    if ((room.status === 'countdown' || room.status === 'playing') && !teamsReady(room)) {
       clearCountdown(room);
       room.pausedFrom = room.status;
       room.status = 'paused';
@@ -97,13 +106,9 @@ export function registerSocketHandlers(io: Server): void {
 
   const startNewRound = (room: Room) => {
     room.round += 1;
-    for (const s of SLOTS) {
-      const p = room.players[s];
-      if (p) {
-        p.progress = 0;
-        p.errors = 0;
-        p.wantsRematch = false;
-      }
+    for (const p of room.players) {
+      p.progress = 0;
+      p.errors = 0;
     }
     room.text = generateText();
     room.winner = null;
@@ -131,6 +136,10 @@ export function registerSocketHandlers(io: Server): void {
     broadcast(room);
   };
 
+  const dropDisconnected = (room: Room) => {
+    room.players = room.players.filter((p) => p.connected);
+  };
+
   const leaveRoom = (socket: Socket) => {
     const found = findBySocket(socket);
     if (!found) return;
@@ -138,9 +147,8 @@ export function registerSocketHandlers(io: Server): void {
     socket.leave(room.id);
     socket.data.roomId = undefined;
     if (room.status === 'lobby') {
-      for (const s of SLOTS) if (room.players[s] === player) room.players[s] = null;
-      normalizeSlots(room);
-      if (!room.players[1]) return destroyRoom(room);
+      room.players = room.players.filter((p) => p !== player);
+      if (room.players.length === 0) return destroyRoom(room);
       updateCleanup(room);
       broadcast(room);
     } else {
@@ -153,26 +161,29 @@ export function registerSocketHandlers(io: Server): void {
   io.on('connection', (socket) => {
     socket.on('time:sync', (ack: unknown) => reply(ack, Date.now()));
 
-    socket.on('room:create', (ack: unknown) => {
+    socket.on('room:create', (data: { name?: string }, ack: unknown) => {
       leaveRoom(socket);
       const room = createRoom();
-      const player = createPlayer(socket.id);
-      room.players[1] = player;
+      const player = createPlayer(socket.id, cleanName(data?.name, 'Player 1'), 1);
+      room.players.push(player);
       attach(socket, room, player);
       reply(ack, { ok: true, roomId: room.id, token: player.token });
       broadcast(room);
     });
 
-    socket.on('room:join', (data: { roomId?: string }, ack: unknown) => {
+    socket.on('room:join', (data: { roomId?: string; name?: string }, ack: unknown) => {
       const code = String(data?.roomId ?? '').trim().toUpperCase();
       const room = rooms.get(code);
       if (!room) return reply(ack, { ok: false, error: 'Room not found' });
-      const existing = room.players[2];
-      if (existing && existing.connected) return reply(ack, { ok: false, error: 'Room is full' });
-      if (existing && room.status !== 'lobby') return reply(ack, { ok: false, error: 'Game in progress' });
+      if (room.status !== 'lobby') return reply(ack, { ok: false, error: 'Game already in progress' });
+      if (room.players.length >= MAX_PLAYERS) return reply(ack, { ok: false, error: 'Room is full' });
       leaveRoom(socket);
-      const player = createPlayer(socket.id);
-      room.players[2] = player;
+      const player = createPlayer(
+        socket.id,
+        cleanName(data?.name, `Player ${room.players.length + 1}`),
+        smallerTeam(room)
+      );
+      room.players.push(player);
       attach(socket, room, player);
       reply(ack, { ok: true, roomId: room.id, token: player.token });
       broadcast(room);
@@ -181,28 +192,49 @@ export function registerSocketHandlers(io: Server): void {
     socket.on('room:rejoin', (data: { roomId?: string; token?: string }, ack: unknown) => {
       const room = rooms.get(String(data?.roomId ?? ''));
       if (!room) return reply(ack, { ok: false });
-      const slot = SLOTS.find((s) => room.players[s]?.token === data?.token);
-      const player = slot ? room.players[slot] : null;
-      if (!slot || !player) return reply(ack, { ok: false });
+      const player = room.players.find((p) => p.token === data?.token);
+      if (!player) return reply(ack, { ok: false });
       attach(socket, room, player);
       if (room.text && room.status !== 'lobby') socket.emit('game:text', room.text);
       reply(ack, { ok: true, roomId: room.id });
-      const both = SLOTS.every((s) => room.players[s]?.connected);
-      if (room.status === 'paused' && both) resumeRound(room);
+      if (room.status === 'paused' && teamsReady(room)) resumeRound(room);
       else broadcast(room);
     });
 
     socket.on('room:leave', () => leaveRoom(socket));
 
-    socket.on('room:settings', (data: { winningDifference?: number; p1Advantage?: number }) => {
+    socket.on('room:settings', (data: { winningDifference?: number }) => {
       const found = findBySocket(socket);
       if (!found) return;
       const { room, player } = found;
-      if (room.players[1] !== player || room.status !== 'lobby') return; // host only
-      if (typeof data?.winningDifference === 'number' && Number.isFinite(data.winningDifference))
+      if (!isHost(room, player) || room.status !== 'lobby') return;
+      if (typeof data?.winningDifference === 'number' && Number.isFinite(data.winningDifference)) {
         room.winningDifference = clampWinningDifference(data.winningDifference);
-      if (typeof data?.p1Advantage === 'number' && Number.isFinite(data.p1Advantage))
-        room.p1Advantage = clampAdvantage(data.p1Advantage);
+      }
+      broadcast(room);
+    });
+
+    socket.on('room:team', (data: { team?: unknown }) => {
+      const found = findBySocket(socket);
+      if (!found) return;
+      const { room, player } = found;
+      if (room.status !== 'lobby') return;
+      const t = data?.team;
+      if (t === 1 || t === 2 || t === null) {
+        player.team = t;
+        broadcast(room);
+      }
+    });
+
+    socket.on('room:weight', (data: { playerId?: string; weight?: number }) => {
+      const found = findBySocket(socket);
+      if (!found) return;
+      const { room, player } = found;
+      if (!isHost(room, player) || room.status !== 'lobby') return;
+      const target = room.players.find((p) => p.id === data?.playerId);
+      const w = Number(data?.weight);
+      if (!target || !Number.isFinite(w)) return;
+      target.weight = clampWeight(w);
       broadcast(room);
     });
 
@@ -210,8 +242,9 @@ export function registerSocketHandlers(io: Server): void {
       const found = findBySocket(socket);
       if (!found) return;
       const { room, player } = found;
-      if (room.players[1] !== player || room.status !== 'lobby') return;
-      if (!SLOTS.every((s) => room.players[s]?.connected)) return;
+      if (!isHost(room, player) || room.status !== 'lobby') return;
+      if (!teamsReady(room)) return;
+      dropDisconnected(room);
       startNewRound(room);
     });
 
@@ -219,6 +252,7 @@ export function registerSocketHandlers(io: Server): void {
       const found = findBySocket(socket);
       if (!found) return;
       const { room, player } = found;
+      if (player.team === null) return; // spectators cannot score
       const now = Date.now();
       // tolerate tiny clock error right at "GO"
       if (room.status === 'countdown' && room.goAt !== null && now >= room.goAt - 250) {
@@ -238,43 +272,35 @@ export function registerSocketHandlers(io: Server): void {
       player.errors = e;
 
       // Server decides the winner.
-      const result = checkWinner(
-        room.players[1]?.progress ?? 0,
-        room.players[2]?.progress ?? 0,
-        room.winningDifference,
-        room.p1Advantage
-      );
+      const result = checkWinner(room.players, room.winningDifference);
       if (result.winner) {
         clearCountdown(room);
         room.status = 'finished';
         room.winner = result.winner;
-        room.finalDifference = Math.abs(result.difference);
+        room.finalDifference = Math.round(Math.abs(result.difference) * 10) / 10;
         room.endedAt = now;
       }
       broadcast(room);
     });
 
-    socket.on('game:rematch', () => {
+    // Host starts another round with the same teams and weights.
+    socket.on('game:again', () => {
       const found = findBySocket(socket);
       if (!found) return;
       const { room, player } = found;
-      if (room.status !== 'finished') return;
-      player.wantsRematch = true;
-      const both = SLOTS.every((s) => room.players[s]?.connected && room.players[s]?.wantsRematch);
-      if (both) startNewRound(room);
-      else broadcast(room);
+      if (!isHost(room, player) || room.status !== 'finished') return;
+      if (!teamsReady(room)) return;
+      dropDisconnected(room);
+      startNewRound(room);
     });
 
     socket.on('room:lobby', () => {
       const found = findBySocket(socket);
       if (!found) return;
-      const { room } = found;
+      const { room, player } = found;
+      if (!isHost(room, player)) return;
       if (room.status !== 'finished' && room.status !== 'paused') return;
-      for (const s of SLOTS) {
-        const p = room.players[s];
-        if (p && !p.connected) room.players[s] = null; // drop the absent opponent
-      }
-      normalizeSlots(room);
+      dropDisconnected(room);
       resetToLobby(room);
       broadcast(room);
     });

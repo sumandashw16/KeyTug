@@ -23,6 +23,8 @@ export default function App() {
         <Lobby
           state={room.state}
           onSettings={room.updateSettings}
+          onTeam={room.setTeam}
+          onWeight={room.setWeight}
           onStart={room.startGame}
           onLeave={room.leave}
         />
@@ -32,7 +34,7 @@ export default function App() {
           state={room.state}
           text={room.text}
           onProgress={room.sendProgress}
-          onRematch={room.rematch}
+          onPlayAgain={room.playAgain}
           onLobby={room.backToLobby}
           onLeave={room.leave}
         />

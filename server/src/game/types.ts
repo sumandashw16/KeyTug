@@ -1,13 +1,16 @@
-export type Slot = 1 | 2;
+export type Team = 1 | 2;
 export type Status = 'lobby' | 'countdown' | 'playing' | 'paused' | 'finished';
 
 export interface Player {
-  token: string;
+  id: string; // public id
+  token: string; // private, used to rejoin
   socketId: string | null;
   connected: boolean;
+  name: string;
+  team: Team | null; // null = spectator
+  weight: number; // score multiplier per correct character
   progress: number; // correct characters
-  errors: number; // wrong key presses
-  wantsRematch: boolean;
+  errors: number;
 }
 
 export interface Room {
@@ -15,40 +18,42 @@ export interface Room {
   round: number;
   status: Status;
   pausedFrom: 'countdown' | 'playing' | null;
-  players: Record<Slot, Player | null>;
-  winningDifference: number;
-  p1Advantage: number; // P2 advantage = 100 - p1Advantage
+  players: Player[]; // join order
+  winningDifference: number; // in weighted points
   text: string;
-  goAt: number | null; // server time when typing is allowed
-  clockStart: number | null; // base for WPM / plausibility (excludes paused time)
+  goAt: number | null;
+  clockStart: number | null;
   pausedAt: number | null;
   endedAt: number | null;
-  winner: Slot | null;
+  winner: Team | null;
   finalDifference: number;
   countdownTimer: NodeJS.Timeout | null;
   cleanupTimer: NodeJS.Timeout | null;
 }
 
 export interface PublicPlayer {
+  id: string;
+  name: string;
+  team: Team | null;
+  weight: number;
   connected: boolean;
   progress: number;
   errors: number;
-  wantsRematch: boolean;
 }
 
 export interface RoomState {
   roomId: string;
-  you: Slot;
+  you: string; // your player id
+  hostId: string | null;
   round: number;
   status: Status;
   pausedFrom: 'countdown' | 'playing' | null;
-  players: Record<Slot, PublicPlayer | null>;
+  players: PublicPlayer[];
   winningDifference: number;
-  p1Advantage: number;
   goAt: number | null;
   clockStart: number | null;
   endedAt: number | null;
-  winner: Slot | null;
+  winner: Team | null;
   finalDifference: number;
   serverNow: number;
 }

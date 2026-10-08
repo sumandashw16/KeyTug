@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { clearSession, loadSession, saveSession, socket, syncClock } from '../socket/socket';
-import { RoomState } from '../types';
+import { RoomState, Team } from '../types';
 import { unlockAudio } from '../utils/sound';
 
 interface Ack {
@@ -51,26 +51,31 @@ export function useRoom() {
     };
   }, []);
 
-  const createRoom = useCallback(() => {
+  const createRoom = useCallback((name: string) => {
     unlockAudio();
     setError(null);
-    socket.emit('room:create', (res: Ack) => {
+    socket.emit('room:create', { name }, (res: Ack) => {
       if (res.ok && res.roomId && res.token) saveSession({ roomId: res.roomId, token: res.token });
       else setError(res.error ?? 'Could not create room');
     });
   }, []);
 
-  const joinRoom = useCallback((code: string) => {
+  const joinRoom = useCallback((code: string, name: string) => {
     unlockAudio();
     setError(null);
-    socket.emit('room:join', { roomId: code }, (res: Ack) => {
+    socket.emit('room:join', { roomId: code, name }, (res: Ack) => {
       if (res.ok && res.roomId && res.token) saveSession({ roomId: res.roomId, token: res.token });
       else setError(res.error ?? 'Could not join room');
     });
   }, []);
 
   const updateSettings = useCallback(
-    (patch: { winningDifference?: number; p1Advantage?: number }) => socket.emit('room:settings', patch),
+    (patch: { winningDifference?: number }) => socket.emit('room:settings', patch),
+    []
+  );
+  const setTeam = useCallback((team: Team | null) => socket.emit('room:team', { team }), []);
+  const setWeight = useCallback(
+    (playerId: string, weight: number) => socket.emit('room:weight', { playerId, weight }),
     []
   );
   const startGame = useCallback(() => {
@@ -81,7 +86,7 @@ export function useRoom() {
     (progress: number, errors: number) => socket.emit('game:progress', { progress, errors }),
     []
   );
-  const rematch = useCallback(() => socket.emit('game:rematch'), []);
+  const playAgain = useCallback(() => socket.emit('game:again'), []);
   const backToLobby = useCallback(() => socket.emit('room:lobby'), []);
   const leave = useCallback(() => {
     socket.emit('room:leave');
@@ -92,6 +97,7 @@ export function useRoom() {
 
   return {
     state, text, connected, ready, error,
-    createRoom, joinRoom, updateSettings, startGame, sendProgress, rematch, backToLobby, leave,
+    createRoom, joinRoom, updateSettings, setTeam, setWeight,
+    startGame, sendProgress, playAgain, backToLobby, leave,
   };
 }

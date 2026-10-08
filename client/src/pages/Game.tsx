@@ -1,28 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Countdown from '../components/Countdown';
-import PlayerStats from '../components/PlayerStats';
 import Rope from '../components/Rope';
+import TeamPanel from '../components/TeamPanel';
 import TypingArea from '../components/TypingArea';
 import { serverNow } from '../socket/socket';
-import { RoomState, Slot } from '../types';
-import { requiredLead, ropePosition, startPosition } from '../utils/ropeMath';
+import { RoomState } from '../types';
+import { ropePosition, round1, teamScore } from '../utils/ropeMath';
 import { playLose, playWin } from '../utils/sound';
-import { calcAccuracy, calcWpm } from '../utils/stats';
 
 interface Props {
   state: RoomState;
   text: string;
   onProgress: (progress: number, errors: number) => void;
-  onRematch: () => void;
+  onPlayAgain: () => void;
   onLobby: () => void;
   onLeave: () => void;
 }
 
-export default function Game({ state, text, onProgress, onRematch, onLobby, onLeave }: Props) {
-  const you = state.you;
-  const opp: Slot = you === 1 ? 2 : 1;
-  const me = state.players[you];
-  const other = state.players[opp];
+export default function Game({ state, text, onProgress, onPlayAgain, onLobby, onLeave }: Props) {
+  const me = state.players.find((p) => p.id === state.you);
+  const myTeam = me?.team ?? null;
+  const isHost = state.hostId === state.you;
 
   // Local typing state: updates instantly, never waits for the server.
   const [progress, setProgress] = useState(me?.progress ?? 0);
@@ -55,81 +53,71 @@ export default function Game({ state, text, onProgress, onRematch, onLobby, onLe
 
   // Re-sync progress when play (re)starts, e.g. after a reconnect.
   useEffect(() => {
-    if (state.status === 'playing') onProgress(live.current.progress, live.current.errors);
-  }, [state.status, onProgress]);
+    if (state.status === 'playing' && myTeam) onProgress(live.current.progress, live.current.errors);
+  }, [state.status, myTeam, onProgress]);
 
   useEffect(() => {
-    if (state.status === 'finished') (state.winner === state.you ? playWin : playLose)();
-  }, [state.status, state.winner, state.you]);
+    if (state.status === 'finished' && myTeam) (state.winner === myTeam ? playWin : playLose)();
+  }, [state.status, state.winner, myTeam]);
 
-  // ----- derived values -----
-  const p1 = you === 1 ? progress : state.players[1]?.progress ?? 0;
-  const p2 = you === 2 ? progress : state.players[2]?.progress ?? 0;
-  const e1 = you === 1 ? errors : state.players[1]?.errors ?? 0;
-  const e2 = you === 2 ? errors : state.players[2]?.errors ?? 0;
-  const diff = p1 - p2;
-  const position = ropePosition(diff, state.winningDifference, state.p1Advantage);
+  // ----- derived values (own progress comes from local state = instant) -----
+  const players = state.players.map((p) => (p.id === state.you ? { ...p, progress, errors } : p));
+  const team1 = players.filter((p) => p.team === 1);
+  const team2 = players.filter((p) => p.team === 2);
+  const s1 = teamScore(players, 1);
+  const s2 = teamScore(players, 2);
+  const diff = s1 - s2;
+  const position = ropePosition(diff, state.winningDifference);
 
   const elapsed = state.clockStart ? (state.endedAt ?? now) - state.clockStart : 0;
   const msToGo = state.goAt !== null ? state.goAt - now : 0;
   const showCountdown = state.status === 'countdown' || (state.status === 'playing' && msToGo > -700);
 
-  const oppGone = !other || !other.connected;
-  const showDisconnect = state.status === 'paused' || (oppGone && state.status !== 'finished');
-  const iWon = state.winner === you;
+  const winnerLabel = state.winner === 1 ? 'TEAM A' : 'TEAM B';
+  const iWon = myTeam !== null && state.winner === myTeam;
 
   return (
     <div className="screen game">
       <header className="game-top">
         <span className="chip">ROOM {state.roomId}</span>
-        <span className="chip">{state.winningDifference} AHEAD TO WIN</span>
+        <span className="chip">{state.winningDifference} POINTS AHEAD TO WIN</span>
         <button className="link" onClick={onLeave}>LEAVE</button>
       </header>
 
       <section className="stats-row">
-        <PlayerStats
-          slot={1}
-          isYou={you === 1}
-          connected={state.players[1]?.connected ?? false}
-          wpm={calcWpm(p1, elapsed)}
-          accuracy={calcAccuracy(p1, e1)}
-          correct={p1}
-        />
-        <PlayerStats
-          slot={2}
-          isYou={you === 2}
-          connected={state.players[2]?.connected ?? false}
-          wpm={calcWpm(p2, elapsed)}
-          accuracy={calcAccuracy(p2, e2)}
-          correct={p2}
-        />
+        <TeamPanel team={1} players={team1} youId={state.you} score={s1} elapsed={elapsed} />
+        <TeamPanel team={2} players={team2} youId={state.you} score={s2} elapsed={elapsed} />
       </section>
 
       <section className="rope-section">
-        <Rope position={position} startPosition={startPosition(state.p1Advantage)} lead={diff} />
-        <div className="rope-meta">
-          <span className="p1">P1 needs +{requiredLead(1, state.winningDifference, state.p1Advantage)}</span>
-          <span className="p2">P2 needs +{requiredLead(2, state.winningDifference, state.p1Advantage)}</span>
-        </div>
+        <Rope position={position} lead={diff} />
       </section>
 
-      <TypingArea
-        slot={you}
-        text={text}
-        initialProgress={initial.current.progress}
-        initialErrors={initial.current.errors}
-        canType={canType}
-        onUpdate={handleUpdate}
-      />
+      {myTeam ? (
+        <TypingArea
+          slot={myTeam}
+          text={text}
+          initialProgress={initial.current.progress}
+          initialErrors={initial.current.errors}
+          canType={canType}
+          onUpdate={handleUpdate}
+        />
+      ) : (
+        <div className="spectating">SPECTATING</div>
+      )}
 
       {showCountdown && <Countdown msToGo={msToGo} />}
 
-      {showDisconnect && (
+      {state.status === 'paused' && (
         <div className="overlay">
           <div className="card">
-            <h2>OPPONENT DISCONNECTED</h2>
-            <p className="muted">Waiting for them to reconnect...</p>
-            <button className="btn" onClick={onLobby}>RETURN TO LOBBY</button>
+            <h2>TEAM DISCONNECTED</h2>
+            <p className="muted">A whole team has no players connected. Waiting for someone to reconnect...</p>
+            {isHost ? (
+              <button className="btn" onClick={onLobby}>RETURN TO LOBBY</button>
+            ) : (
+              <p className="muted small">The host can return everyone to the lobby.</p>
+            )}
           </div>
         </div>
       )}
@@ -137,30 +125,32 @@ export default function Game({ state, text, onProgress, onRematch, onLobby, onLe
       {state.status === 'finished' && state.winner && (
         <div className="overlay">
           <div className={`card result ${iWon ? 'win' : 'lose'}`}>
-            {iWon ? (
+            {myTeam === null ? (
+              <>
+                <h2>{winnerLabel} WINS</h2>
+                <p className="big">{state.finalDifference} points ahead</p>
+              </>
+            ) : iWon ? (
               <>
                 <div className="trophy">🏆</div>
-                <h2>PLAYER {state.winner} WINS!</h2>
-                <p>You pulled the rope all the way!</p>
-                <p className="big">{state.finalDifference} characters ahead</p>
+                <h2>{winnerLabel} WINS!</h2>
+                <p>Your team pulled the rope all the way!</p>
+                <p className="big">{state.finalDifference} points ahead</p>
               </>
             ) : (
               <>
-                <h2>PLAYER {state.winner} WINS</h2>
-                <p>You were {state.finalDifference} characters behind.</p>
+                <h2>{winnerLabel} WINS</h2>
+                <p>Your team was {state.finalDifference} points behind.</p>
               </>
             )}
-            {oppGone && <p className="muted">Your opponent left the room.</p>}
-            <div className="row">
-              <button className="btn primary" disabled={!!me?.wantsRematch || oppGone} onClick={onRematch}>
-                {me?.wantsRematch
-                  ? 'WAITING FOR OPPONENT…'
-                  : other?.wantsRematch
-                  ? 'PLAY AGAIN (OPPONENT READY)'
-                  : 'PLAY AGAIN'}
-              </button>
-              <button className="btn" onClick={onLobby}>RETURN TO LOBBY</button>
-            </div>
+            {isHost ? (
+              <div className="row">
+                <button className="btn primary" onClick={onPlayAgain}>PLAY AGAIN</button>
+                <button className="btn" onClick={onLobby}>RETURN TO LOBBY</button>
+              </div>
+            ) : (
+              <p className="muted">Waiting for the host to play again or return to the lobby…</p>
+            )}
           </div>
         </div>
       )}

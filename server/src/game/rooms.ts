@@ -1,9 +1,8 @@
 import { randomUUID } from 'crypto';
-import { Player, PublicPlayer, Room, RoomState, Slot } from './types';
+import { Player, Room, RoomState, Team } from './types';
 
 export const rooms = new Map<string, Room>();
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
-const SLOTS: Slot[] = [1, 2];
 
 function makeCode(): string {
   let code = '';
@@ -13,8 +12,18 @@ function makeCode(): string {
   return code;
 }
 
-export function createPlayer(socketId: string): Player {
-  return { token: randomUUID(), socketId, connected: true, progress: 0, errors: 0, wantsRematch: false };
+export function createPlayer(socketId: string, name: string, team: Team | null): Player {
+  return {
+    id: randomUUID().slice(0, 8),
+    token: randomUUID(),
+    socketId,
+    connected: true,
+    name,
+    team,
+    weight: 1,
+    progress: 0,
+    errors: 0,
+  };
 }
 
 export function createRoom(): Room {
@@ -23,9 +32,8 @@ export function createRoom(): Room {
     round: 0,
     status: 'lobby',
     pausedFrom: null,
-    players: { 1: null, 2: null },
+    players: [],
     winningDifference: 100,
-    p1Advantage: 50,
     text: '',
     goAt: null,
     clockStart: null,
@@ -40,6 +48,9 @@ export function createRoom(): Room {
   return room;
 }
 
+/** Host = first connected player in join order (so hosting passes on automatically). */
+export const hostOf = (room: Room): Player | null => room.players.find((p) => p.connected) ?? null;
+
 export function resetToLobby(room: Room): void {
   if (room.countdownTimer) clearTimeout(room.countdownTimer);
   room.countdownTimer = null;
@@ -52,29 +63,30 @@ export function resetToLobby(room: Room): void {
   room.endedAt = null;
   room.winner = null;
   room.finalDifference = 0;
-  for (const s of SLOTS) {
-    const p = room.players[s];
-    if (p) {
-      p.progress = 0;
-      p.errors = 0;
-      p.wantsRematch = false;
-    }
+  for (const p of room.players) {
+    p.progress = 0;
+    p.errors = 0;
   }
 }
 
-const pub = (p: Player | null): PublicPlayer | null =>
-  p && { connected: p.connected, progress: p.progress, errors: p.errors, wantsRematch: p.wantsRematch };
-
-export function toState(room: Room, you: Slot): RoomState {
+export function toState(room: Room, you: string): RoomState {
   return {
     roomId: room.id,
     you,
+    hostId: hostOf(room)?.id ?? null,
     round: room.round,
     status: room.status,
     pausedFrom: room.pausedFrom,
-    players: { 1: pub(room.players[1]), 2: pub(room.players[2]) },
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      team: p.team,
+      weight: p.weight,
+      connected: p.connected,
+      progress: p.progress,
+      errors: p.errors,
+    })),
     winningDifference: room.winningDifference,
-    p1Advantage: room.p1Advantage,
     goAt: room.goAt,
     clockStart: room.clockStart,
     endedAt: room.endedAt,
