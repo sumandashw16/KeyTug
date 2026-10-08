@@ -26,6 +26,7 @@ export default function TeamPanel({ team, players, youId, score, elapsed }: Prop
             <span className="tp-pname">
               {p.name}
               {p.id === youId && <em>YOU</em>}
+              {p.isBot && <em>BOT</em>}
               {p.weight !== 1 && <i>×{p.weight.toFixed(1)}</i>}
               {!p.connected && <b>OFFLINE</b>}
             </span>

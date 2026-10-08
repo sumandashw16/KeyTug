@@ -5,12 +5,16 @@ export interface Player {
   id: string; // public id
   token: string; // private, used to rejoin
   socketId: string | null;
-  connected: boolean;
+  connected: boolean; // bots are always "connected"
   name: string;
   team: Team | null; // null = spectator
   weight: number; // score multiplier per correct character
   progress: number; // correct characters
   errors: number;
+  isBot: boolean;
+  botWpm: number;
+  botAccuracy: number; // percent
+  nextAt: number; // bot only: server time of next keystroke
 }
 
 export interface Room {
@@ -27,8 +31,10 @@ export interface Room {
   endedAt: number | null;
   winner: Team | null;
   finalDifference: number;
+  botSeq: number;
   countdownTimer: NodeJS.Timeout | null;
   cleanupTimer: NodeJS.Timeout | null;
+  botTimer: NodeJS.Timeout | null;
 }
 
 export interface PublicPlayer {
@@ -39,6 +45,9 @@ export interface PublicPlayer {
   connected: boolean;
   progress: number;
   errors: number;
+  isBot: boolean;
+  botWpm: number;
+  botAccuracy: number;
 }
 
 export interface RoomState {

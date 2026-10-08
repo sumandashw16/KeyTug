@@ -25,6 +25,9 @@ export default function App() {
           onSettings={room.updateSettings}
           onTeam={room.setTeam}
           onWeight={room.setWeight}
+          onAddBot={room.addBot}
+          onUpdateBot={room.updateBot}
+          onRemoveBot={room.removeBot}
           onStart={room.startGame}
           onLeave={room.leave}
         />

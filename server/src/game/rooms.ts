@@ -23,6 +23,29 @@ export function createPlayer(socketId: string, name: string, team: Team | null):
     weight: 1,
     progress: 0,
     errors: 0,
+    isBot: false,
+    botWpm: 0,
+    botAccuracy: 100,
+    nextAt: 0,
+  };
+}
+
+export function createBot(room: Room, team: Team, wpm: number, accuracy: number): Player {
+  room.botSeq += 1;
+  return {
+    id: randomUUID().slice(0, 8),
+    token: randomUUID(), // never handed out
+    socketId: null,
+    connected: true,
+    name: `BOT ${room.botSeq}`,
+    team,
+    weight: 1,
+    progress: 0,
+    errors: 0,
+    isBot: true,
+    botWpm: wpm,
+    botAccuracy: accuracy,
+    nextAt: 0,
   };
 }
 
@@ -41,19 +64,24 @@ export function createRoom(): Room {
     endedAt: null,
     winner: null,
     finalDifference: 0,
+    botSeq: 0,
     countdownTimer: null,
     cleanupTimer: null,
+    botTimer: null,
   };
   rooms.set(room.id, room);
   return room;
 }
 
-/** Host = first connected player in join order (so hosting passes on automatically). */
-export const hostOf = (room: Room): Player | null => room.players.find((p) => p.connected) ?? null;
+/** Host = first connected HUMAN in join order (so hosting passes on automatically). */
+export const hostOf = (room: Room): Player | null =>
+  room.players.find((p) => p.connected && !p.isBot) ?? null;
 
 export function resetToLobby(room: Room): void {
   if (room.countdownTimer) clearTimeout(room.countdownTimer);
   room.countdownTimer = null;
+  if (room.botTimer) clearInterval(room.botTimer);
+  room.botTimer = null;
   room.status = 'lobby';
   room.pausedFrom = null;
   room.text = '';
@@ -85,6 +113,9 @@ export function toState(room: Room, you: string): RoomState {
       connected: p.connected,
       progress: p.progress,
       errors: p.errors,
+      isBot: p.isBot,
+      botWpm: p.botWpm,
+      botAccuracy: p.botAccuracy,
     })),
     winningDifference: room.winningDifference,
     goAt: room.goAt,

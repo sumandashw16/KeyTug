@@ -10,6 +10,11 @@ interface Ack {
   token?: string;
 }
 
+export interface BotConfig {
+  wpm: number;
+  accuracy: number;
+}
+
 export function useRoom() {
   const [state, setState] = useState<RoomState | null>(null);
   const [text, setText] = useState('');
@@ -51,10 +56,10 @@ export function useRoom() {
     };
   }, []);
 
-  const createRoom = useCallback((name: string) => {
+  const createRoom = useCallback((name: string, bot?: BotConfig) => {
     unlockAudio();
     setError(null);
-    socket.emit('room:create', { name }, (res: Ack) => {
+    socket.emit('room:create', { name, bot }, (res: Ack) => {
       if (res.ok && res.roomId && res.token) saveSession({ roomId: res.roomId, token: res.token });
       else setError(res.error ?? 'Could not create room');
     });
@@ -78,6 +83,15 @@ export function useRoom() {
     (playerId: string, weight: number) => socket.emit('room:weight', { playerId, weight }),
     []
   );
+  const addBot = useCallback(
+    (team: Team, cfg: BotConfig) => socket.emit('bot:add', { team, ...cfg }),
+    []
+  );
+  const updateBot = useCallback(
+    (playerId: string, patch: Partial<BotConfig>) => socket.emit('bot:update', { playerId, ...patch }),
+    []
+  );
+  const removeBot = useCallback((playerId: string) => socket.emit('bot:remove', { playerId }), []);
   const startGame = useCallback(() => {
     unlockAudio();
     socket.emit('game:start');
@@ -98,6 +112,7 @@ export function useRoom() {
   return {
     state, text, connected, ready, error,
     createRoom, joinRoom, updateSettings, setTeam, setWeight,
+    addBot, updateBot, removeBot,
     startGame, sendProgress, playAgain, backToLobby, leave,
   };
 }

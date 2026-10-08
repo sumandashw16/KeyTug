@@ -319,3 +319,62 @@ body::before {
   .teams { flex-direction: column; }
   .stats-row { flex-direction: column; }
 }
+/* ---------- homepage ---------- */
+.home { gap: 20px; padding-top: 40px; padding-bottom: 56px; }
+.name-row { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.name-row label { font-size: 12px; letter-spacing: 0.3em; color: var(--muted); font-weight: 700; }
+.section-title { font-size: 13px; letter-spacing: 0.4em; color: var(--muted); font-weight: 800; margin-top: 10px; }
+
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; width: min(1100px, 100%); text-align: left; }
+.mode-card {
+  display: flex; flex-direction: column; gap: 12px; padding: 26px; border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line);
+  transition: transform 0.15s, border-color 0.2s, box-shadow 0.2s;
+}
+.mode-card:hover { transform: translateY(-4px); }
+.mc-solo:hover { border-color: var(--p1); box-shadow: 0 0 40px rgba(var(--p1-rgb), 0.2); }
+.mc-friends:hover { border-color: var(--p2); box-shadow: 0 0 40px rgba(var(--p2-rgb), 0.2); }
+.mc-join:hover { border-color: #fff; box-shadow: 0 0 40px rgba(255, 255, 255, 0.12); }
+.mc-tag { font-size: 11px; letter-spacing: 0.3em; font-weight: 800; color: var(--muted); }
+.mc-solo .mc-tag { color: var(--p1); }
+.mc-friends .mc-tag { color: var(--p2); }
+.mc-title { font-size: 24px; font-weight: 900; letter-spacing: 0.06em; }
+.mc-desc { color: var(--muted); font-size: 14px; line-height: 1.55; flex: 1; }
+.mode-card .btn { width: 100%; padding: 14px 20px; }
+.mode-card .code-input { width: 100%; font-size: 32px; }
+
+.level-chips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.level-btn {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; cursor: pointer;
+  font: 800 13px var(--sans); letter-spacing: 0.12em; padding: 10px 12px; border-radius: 12px;
+  color: var(--text); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line);
+}
+.level-btn small { font: 600 11px var(--mono); letter-spacing: 0.05em; color: var(--muted); }
+.level-btn.on { background: rgba(var(--p1-rgb), 0.18); border-color: var(--p1); }
+
+.how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; width: min(1100px, 100%); margin-top: 22px; text-align: left; }
+.how-step { padding: 18px 20px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); }
+.how-step b {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  font: 900 14px var(--mono); color: #06101c; background: linear-gradient(135deg, var(--p1), var(--p2));
+}
+.how-step h4 { margin: 10px 0 6px; font-size: 13px; letter-spacing: 0.18em; font-weight: 800; }
+.how-step p { color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+@media (max-width: 900px) {
+  .modes, .how { grid-template-columns: 1fr; }
+}
+
+/* ---------- bots in lobby ---------- */
+.roster-row { flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 8px; }
+.rr-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.bot-ctl { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.bot-line { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.bot-line button {
+  font: 700 11px var(--mono); padding: 4px 8px; border-radius: 8px; cursor: pointer;
+  color: var(--text); background: rgba(255, 255, 255, 0.07); border: 1px solid var(--line);
+}
+.bot-line button.on { background: #fff; color: #06101c; }
+.bot-line button.x { margin-left: auto; color: var(--err); }
+.bot-line b { font: 800 12px var(--mono); min-width: 70px; text-align: center; }
+.tc-actions { display: flex; gap: 8px; flex-wrap: wrap; }

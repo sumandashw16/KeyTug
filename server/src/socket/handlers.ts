@@ -1,15 +1,17 @@
 import { Server, Socket } from 'socket.io';
 import { randomUUID } from 'crypto';
 import { checkWinner, clampWeight, clampWinningDifference } from '../game/logic';
-import { createPlayer, createRoom, hostOf, resetToLobby, rooms, toState } from '../game/rooms';
+import { clampBotAccuracy, clampBotWpm, resetBots, stepBots } from '../game/bots';
+import { createBot, createPlayer, createRoom, hostOf, resetToLobby, rooms, toState } from '../game/rooms';
 import { generateText } from '../game/text';
 import { Player, Room, Team } from '../game/types';
 
 const COUNTDOWN_MS = 3000;
-const MAX_CPS = 25; // plausibility cap per player: 25 chars/sec
+const MAX_CPS = 25; // plausibility cap per human: 25 chars/sec
 const BURST_ALLOWANCE = 40;
 const EMPTY_ROOM_TTL_MS = 2 * 60 * 1000;
-const MAX_PLAYERS = 16;
+const MAX_PLAYERS = 16; // humans + bots
+const BOT_TICK_MS = 50;
 const TEAMS: Team[] = [1, 2];
 
 const reply = (ack: unknown, payload: unknown) => {
@@ -21,11 +23,16 @@ const cleanName = (raw: unknown, fallback: string) => {
   return s || fallback;
 };
 
+const botParams = (raw: { wpm?: unknown; accuracy?: unknown } | undefined) => ({
+  wpm: clampBotWpm(Number(raw?.wpm) || 55),
+  accuracy: clampBotAccuracy(Number(raw?.accuracy) || 95),
+});
+
 export function registerSocketHandlers(io: Server): void {
   // ---------- helpers ----------
   const broadcast = (room: Room) => {
     for (const p of room.players) {
-      if (p.connected && p.socketId) io.to(p.socketId).emit('room:state', toState(room, p.id));
+      if (!p.isBot && p.connected && p.socketId) io.to(p.socketId).emit('room:state', toState(room, p.id));
     }
   };
 
@@ -34,21 +41,29 @@ export function registerSocketHandlers(io: Server): void {
     room.countdownTimer = null;
   };
 
+  const stopBots = (room: Room) => {
+    if (room.botTimer) clearInterval(room.botTimer);
+    room.botTimer = null;
+  };
+
   const destroyRoom = (room: Room) => {
     clearCountdown(room);
+    stopBots(room);
     if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
     rooms.delete(room.id);
   };
 
+  const humansConnected = (room: Room) => room.players.some((p) => p.connected && !p.isBot);
+
   const updateCleanup = (room: Room) => {
     if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
     room.cleanupTimer = null;
-    if (!room.players.some((p) => p.connected)) {
+    if (!humansConnected(room)) {
       room.cleanupTimer = setTimeout(() => destroyRoom(room), EMPTY_ROOM_TTL_MS);
     }
   };
 
-  /** Both teams need at least one connected player. */
+  /** Both teams need at least one connected player (a bot counts). */
   const teamsReady = (room: Room) =>
     TEAMS.every((t) => room.players.some((p) => p.team === t && p.connected));
 
@@ -65,7 +80,7 @@ export function registerSocketHandlers(io: Server): void {
     if (!roomId) return null;
     const room = rooms.get(roomId);
     if (!room) return null;
-    const player = room.players.find((p) => p.socketId === socket.id);
+    const player = room.players.find((p) => !p.isBot && p.socketId === socket.id);
     return player ? { room, player } : null;
   };
 
@@ -77,12 +92,42 @@ export function registerSocketHandlers(io: Server): void {
     updateCleanup(room);
   };
 
+  /** Server decides the winner. Returns true if the round just ended. */
+  const finishIfWon = (room: Room, now: number): boolean => {
+    const result = checkWinner(room.players, room.winningDifference);
+    if (!result.winner) return false;
+    clearCountdown(room);
+    stopBots(room);
+    room.status = 'finished';
+    room.winner = result.winner;
+    room.finalDifference = Math.round(Math.abs(result.difference) * 10) / 10;
+    room.endedAt = now;
+    return true;
+  };
+
+  const startBots = (room: Room) => {
+    stopBots(room);
+    if (!room.players.some((p) => p.isBot)) return;
+    resetBots(room);
+    room.botTimer = setInterval(() => {
+      if (room.status !== 'playing') return;
+      const now = Date.now();
+      if (!stepBots(room, now)) return;
+      finishIfWon(room, now);
+      broadcast(room);
+    }, BOT_TICK_MS);
+  };
+
   const markDisconnected = (room: Room, player: Player) => {
     player.connected = false;
     player.socketId = null;
-    // Game continues unless a whole team is gone.
-    if ((room.status === 'countdown' || room.status === 'playing') && !teamsReady(room)) {
+    // Game continues unless a whole team is gone or no human is left.
+    if (
+      (room.status === 'countdown' || room.status === 'playing') &&
+      (!teamsReady(room) || !humansConnected(room))
+    ) {
       clearCountdown(room);
+      stopBots(room);
       room.pausedFrom = room.status;
       room.status = 'paused';
       room.pausedAt = Date.now();
@@ -102,6 +147,7 @@ export function registerSocketHandlers(io: Server): void {
         broadcast(room);
       }
     }, COUNTDOWN_MS);
+    startBots(room);
   };
 
   const startNewRound = (room: Room) => {
@@ -148,7 +194,7 @@ export function registerSocketHandlers(io: Server): void {
     socket.data.roomId = undefined;
     if (room.status === 'lobby') {
       room.players = room.players.filter((p) => p !== player);
-      if (room.players.length === 0) return destroyRoom(room);
+      if (!room.players.some((p) => !p.isBot)) return destroyRoom(room);
       updateCleanup(room);
       broadcast(room);
     } else {
@@ -161,15 +207,22 @@ export function registerSocketHandlers(io: Server): void {
   io.on('connection', (socket) => {
     socket.on('time:sync', (ack: unknown) => reply(ack, Date.now()));
 
-    socket.on('room:create', (data: { name?: string }, ack: unknown) => {
-      leaveRoom(socket);
-      const room = createRoom();
-      const player = createPlayer(socket.id, cleanName(data?.name, 'Player 1'), 1);
-      room.players.push(player);
-      attach(socket, room, player);
-      reply(ack, { ok: true, roomId: room.id, token: player.token });
-      broadcast(room);
-    });
+    socket.on(
+      'room:create',
+      (data: { name?: string; bot?: { wpm?: number; accuracy?: number } }, ack: unknown) => {
+        leaveRoom(socket);
+        const room = createRoom();
+        const player = createPlayer(socket.id, cleanName(data?.name, 'Player 1'), 1);
+        room.players.push(player);
+        if (data?.bot) {
+          const b = botParams(data.bot);
+          room.players.push(createBot(room, 2, b.wpm, b.accuracy));
+        }
+        attach(socket, room, player);
+        reply(ack, { ok: true, roomId: room.id, token: player.token });
+        broadcast(room);
+      }
+    );
 
     socket.on('room:join', (data: { roomId?: string; name?: string }, ack: unknown) => {
       const code = String(data?.roomId ?? '').trim().toUpperCase();
@@ -178,11 +231,8 @@ export function registerSocketHandlers(io: Server): void {
       if (room.status !== 'lobby') return reply(ack, { ok: false, error: 'Game already in progress' });
       if (room.players.length >= MAX_PLAYERS) return reply(ack, { ok: false, error: 'Room is full' });
       leaveRoom(socket);
-      const player = createPlayer(
-        socket.id,
-        cleanName(data?.name, `Player ${room.players.length + 1}`),
-        smallerTeam(room)
-      );
+      const humans = room.players.filter((p) => !p.isBot).length;
+      const player = createPlayer(socket.id, cleanName(data?.name, `Player ${humans + 1}`), smallerTeam(room));
       room.players.push(player);
       attach(socket, room, player);
       reply(ack, { ok: true, roomId: room.id, token: player.token });
@@ -192,12 +242,12 @@ export function registerSocketHandlers(io: Server): void {
     socket.on('room:rejoin', (data: { roomId?: string; token?: string }, ack: unknown) => {
       const room = rooms.get(String(data?.roomId ?? ''));
       if (!room) return reply(ack, { ok: false });
-      const player = room.players.find((p) => p.token === data?.token);
+      const player = room.players.find((p) => !p.isBot && p.token === data?.token);
       if (!player) return reply(ack, { ok: false });
       attach(socket, room, player);
       if (room.text && room.status !== 'lobby') socket.emit('game:text', room.text);
       reply(ack, { ok: true, roomId: room.id });
-      if (room.status === 'paused' && teamsReady(room)) resumeRound(room);
+      if (room.status === 'paused' && teamsReady(room) && humansConnected(room)) resumeRound(room);
       else broadcast(room);
     });
 
@@ -238,6 +288,41 @@ export function registerSocketHandlers(io: Server): void {
       broadcast(room);
     });
 
+    // ----- bots (host, lobby only) -----
+    socket.on('bot:add', (data: { team?: unknown; wpm?: number; accuracy?: number }) => {
+      const found = findBySocket(socket);
+      if (!found) return;
+      const { room, player } = found;
+      if (!isHost(room, player) || room.status !== 'lobby') return;
+      if (data?.team !== 1 && data?.team !== 2) return;
+      if (room.players.length >= MAX_PLAYERS) return;
+      const b = botParams(data);
+      room.players.push(createBot(room, data.team, b.wpm, b.accuracy));
+      broadcast(room);
+    });
+
+    socket.on('bot:update', (data: { playerId?: string; wpm?: number; accuracy?: number }) => {
+      const found = findBySocket(socket);
+      if (!found) return;
+      const { room, player } = found;
+      if (!isHost(room, player) || room.status !== 'lobby') return;
+      const bot = room.players.find((p) => p.isBot && p.id === data?.playerId);
+      if (!bot) return;
+      if (typeof data.wpm === 'number' && Number.isFinite(data.wpm)) bot.botWpm = clampBotWpm(data.wpm);
+      if (typeof data.accuracy === 'number' && Number.isFinite(data.accuracy))
+        bot.botAccuracy = clampBotAccuracy(data.accuracy);
+      broadcast(room);
+    });
+
+    socket.on('bot:remove', (data: { playerId?: string }) => {
+      const found = findBySocket(socket);
+      if (!found) return;
+      const { room, player } = found;
+      if (!isHost(room, player) || room.status !== 'lobby') return;
+      room.players = room.players.filter((p) => !(p.isBot && p.id === data?.playerId));
+      broadcast(room);
+    });
+
     socket.on('game:start', () => {
       const found = findBySocket(socket);
       if (!found) return;
@@ -270,20 +355,11 @@ export function registerSocketHandlers(io: Server): void {
 
       player.progress = p;
       player.errors = e;
-
-      // Server decides the winner.
-      const result = checkWinner(room.players, room.winningDifference);
-      if (result.winner) {
-        clearCountdown(room);
-        room.status = 'finished';
-        room.winner = result.winner;
-        room.finalDifference = Math.round(Math.abs(result.difference) * 10) / 10;
-        room.endedAt = now;
-      }
+      finishIfWon(room, now);
       broadcast(room);
     });
 
-    // Host starts another round with the same teams and weights.
+    // Host starts another round with the same teams, bots and weights.
     socket.on('game:again', () => {
       const found = findBySocket(socket);
       if (!found) return;

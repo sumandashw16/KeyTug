@@ -9,6 +9,9 @@ export interface PublicPlayer {
   connected: boolean;
   progress: number;
   errors: number;
+  isBot: boolean;
+  botWpm: number;
+  botAccuracy: number;
 }
 
 export interface RoomState {
