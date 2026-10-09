@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Countdown from '../components/Countdown';
 import Rope from '../components/Rope';
+import Scoreboard from '../components/Scoreboard';
 import TeamPanel from '../components/TeamPanel';
 import TypingArea from '../components/TypingArea';
 import { serverNow } from '../socket/socket';
 import { RoomState } from '../types';
-import { ropePosition, round1, teamScore } from '../utils/ropeMath';
+import { ropePosition, teamScore } from '../utils/ropeMath';
 import { playLose, playWin } from '../utils/sound';
 
 interface Props {
@@ -73,9 +74,6 @@ export default function Game({ state, text, onProgress, onPlayAgain, onLobby, on
   const msToGo = state.goAt !== null ? state.goAt - now : 0;
   const showCountdown = state.status === 'countdown' || (state.status === 'playing' && msToGo > -700);
 
-  const winnerLabel = state.winner === 1 ? 'TEAM A' : 'TEAM B';
-  const iWon = myTeam !== null && state.winner === myTeam;
-
   return (
     <div className="screen game">
       <header className="game-top">
@@ -123,36 +121,17 @@ export default function Game({ state, text, onProgress, onPlayAgain, onLobby, on
       )}
 
       {state.status === 'finished' && state.winner && (
-        <div className="overlay">
-          <div className={`card result ${iWon ? 'win' : 'lose'}`}>
-            {myTeam === null ? (
-              <>
-                <h2>{winnerLabel} WINS</h2>
-                <p className="big">{state.finalDifference} points ahead</p>
-              </>
-            ) : iWon ? (
-              <>
-                <div className="trophy">🏆</div>
-                <h2>{winnerLabel} WINS!</h2>
-                <p>Your team pulled the rope all the way!</p>
-                <p className="big">{state.finalDifference} points ahead</p>
-              </>
-            ) : (
-              <>
-                <h2>{winnerLabel} WINS</h2>
-                <p>Your team was {state.finalDifference} points behind.</p>
-              </>
-            )}
-            {isHost ? (
-              <div className="row">
-                <button className="btn primary" onClick={onPlayAgain}>PLAY AGAIN</button>
-                <button className="btn" onClick={onLobby}>RETURN TO LOBBY</button>
-              </div>
-            ) : (
-              <p className="muted">Waiting for the host to play again or return to the lobby…</p>
-            )}
-          </div>
-        </div>
+        <Scoreboard
+          players={state.players}
+          winner={state.winner}
+          myId={state.you}
+          myTeam={myTeam}
+          elapsed={elapsed}
+          finalDifference={state.finalDifference}
+          isHost={isHost}
+          onPlayAgain={onPlayAgain}
+          onLobby={onLobby}
+        />
       )}
     </div>
   );
