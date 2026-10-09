@@ -67,6 +67,8 @@ export default function TypingArea({ slot, text, initialProgress, initialErrors,
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = textRef.current;
       if (!t) return;

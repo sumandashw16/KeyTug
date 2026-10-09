@@ -30,6 +30,8 @@ export default function App() {
           onRemoveBot={room.removeBot}
           onStart={room.startGame}
           onLeave={room.leave}
+          chat={room.chat}
+          onChat={room.sendChat}
         />
       ) : (
         <Game
@@ -40,6 +42,8 @@ export default function App() {
           onPlayAgain={room.playAgain}
           onLobby={room.backToLobby}
           onLeave={room.leave}
+          chat={room.chat}
+          onChat={room.sendChat}
         />
       )}
     </>

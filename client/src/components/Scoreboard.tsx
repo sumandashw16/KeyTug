@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { EndReason, PublicPlayer, Team } from '../types';
 import { round1 } from '../utils/ropeMath';
 import { calcAccuracy, calcWpm } from '../utils/stats';
@@ -14,6 +14,7 @@ interface Props {
   isHost: boolean;
   onPlayAgain: () => void;
   onLobby: () => void;
+  chat?: ReactNode;
 }
 
 interface Row {
@@ -41,7 +42,7 @@ function CountUp({ to, delay = 0, ms = 900, decimals = 0 }: { to: number; delay?
 }
 
 export default function Scoreboard({
-  players, winner, endReason, myId, myTeam, elapsed, finalDifference, isHost, onPlayAgain, onLobby,
+  players, winner, endReason, myId, myTeam, elapsed, finalDifference, isHost, onPlayAgain, onLobby, chat,
 }: Props) {
   const build = (team: Team): Row[] =>
     players
@@ -150,6 +151,8 @@ export default function Scoreboard({
         </div>
 
         {order.map(box)}
+
+        {chat}
 
         <div className="row sb-actions">
           {isHost ? (

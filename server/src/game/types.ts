@@ -2,6 +2,16 @@ export type Team = 1 | 2;
 export type Status = 'lobby' | 'countdown' | 'playing' | 'paused' | 'finished';
 export type EndReason = 'lead' | 'time' | null;
 
+export interface ChatMessage {
+  id: number;
+  kind: 'user' | 'system';
+  name: string;
+  team: Team | null;
+  playerId: string | null;
+  text: string;
+  at: number;
+}
+
 export interface Player {
   id: string; // public id
   token: string; // private, used to rejoin
@@ -37,6 +47,8 @@ export interface Room {
   winner: Team | null; // null + finished = draw
   finalDifference: number;
   botSeq: number;
+  chat: ChatMessage[];
+  chatSeq: number;
   countdownTimer: NodeJS.Timeout | null;
   cleanupTimer: NodeJS.Timeout | null;
   botTimer: NodeJS.Timeout | null;

@@ -4,7 +4,7 @@ import { checkWinner, clampWeight, clampWinningDifference, teamScore } from '../
 import { clampBotAccuracy, clampBotWpm, resetBots, stepBots } from '../game/bots';
 import { createBot, createPlayer, createRoom, hostOf, resetToLobby, rooms, toState } from '../game/rooms';
 import { generateText } from '../game/text';
-import { Player, Room, Team } from '../game/types';
+import { ChatMessage, Player, Room, Team } from '../game/types';
 
 const COUNTDOWN_MS = 3000;
 const MAX_CPS = 25; // plausibility cap per human: 25 chars/sec
@@ -14,6 +14,11 @@ const MAX_PLAYERS = 16; // humans + bots
 const BOT_TICK_MS = 50;
 const TIME_GRACE_MS = 250; // lets in-flight keystrokes land at the buzzer
 const TEAMS: Team[] = [1, 2];
+const CHAT_MAX_LEN = 200;
+const CHAT_HISTORY = 100;
+const CHAT_WINDOW_MS = 5000;
+const CHAT_MAX_PER_WINDOW = 5;
+const chatTimes = new WeakMap<Player, number[]>();
 
 const reply = (ack: unknown, payload: unknown) => {
   if (typeof ack === 'function') (ack as (p: unknown) => void)(payload);
@@ -44,6 +49,25 @@ export function registerSocketHandlers(io: Server): void {
     if (room.countdownTimer) clearTimeout(room.countdownTimer);
     room.countdownTimer = null;
   };
+
+    const addChat = (
+    room: Room,
+    m: { kind: 'user' | 'system'; text: string; name?: string; team?: Team | null; playerId?: string | null }
+  ) => {
+    const msg: ChatMessage = {
+      id: ++room.chatSeq,
+      kind: m.kind,
+      name: m.name ?? '',
+      team: m.team ?? null,
+      playerId: m.playerId ?? null,
+      text: m.text,
+      at: Date.now(),
+    };
+    room.chat.push(msg);
+    if (room.chat.length > CHAT_HISTORY) room.chat.shift();
+    io.to(room.id).emit('chat:message', msg);
+  };
+  const say = (room: Room, text: string) => addChat(room, { kind: 'system', text });
 
   const clearTimeLimit = (room: Room) => {
     if (room.timeTimer) clearTimeout(room.timeTimer);
@@ -123,6 +147,7 @@ export function registerSocketHandlers(io: Server): void {
     room.endReason = 'lead';
     room.finalDifference = Math.round(Math.abs(result.difference) * 10) / 10;
     room.endedAt = now;
+    say(room, 'Match finished');
     return true;
   };
 
@@ -141,6 +166,7 @@ export function registerSocketHandlers(io: Server): void {
     room.endReason = 'time';
     room.finalDifference = Math.round(Math.abs(diff) * 10) / 10;
     room.endedAt = endAt;
+    say(room, 'Match finished');
     broadcast(room);
   };
 
@@ -254,6 +280,7 @@ export function registerSocketHandlers(io: Server): void {
     if (room.status === 'lobby') {
       room.players = room.players.filter((p) => p !== player);
       if (!room.players.some((p) => !p.isBot)) return destroyRoom(room);
+      say(room, `${player.name} left`);
       updateCleanup(room);
       broadcast(room);
     } else {
@@ -278,6 +305,7 @@ export function registerSocketHandlers(io: Server): void {
           room.players.push(createBot(room, 2, b.wpm, b.accuracy));
         }
         attach(socket, room, player);
+        socket.emit('chat:history', room.chat);
         reply(ack, { ok: true, roomId: room.id, token: player.token });
         broadcast(room);
       }
@@ -294,6 +322,8 @@ export function registerSocketHandlers(io: Server): void {
       const player = createPlayer(socket.id, cleanName(data?.name, `Player ${humans + 1}`), smallerTeam(room));
       room.players.push(player);
       attach(socket, room, player);
+      socket.emit('chat:history', room.chat);
+      say(room, `${player.name} joined`);
       reply(ack, { ok: true, roomId: room.id, token: player.token });
       broadcast(room);
     });
@@ -304,6 +334,7 @@ export function registerSocketHandlers(io: Server): void {
       const player = room.players.find((p) => !p.isBot && p.token === data?.token);
       if (!player) return reply(ack, { ok: false });
       attach(socket, room, player);
+      socket.emit('chat:history', room.chat);
       if (room.text && room.status !== 'lobby') socket.emit('game:text', room.text);
       reply(ack, { ok: true, roomId: room.id });
       if (room.status === 'paused' && teamsReady(room) && humansConnected(room)) resumeRound(room);
@@ -334,6 +365,7 @@ export function registerSocketHandlers(io: Server): void {
       const t = data?.team;
       if (t === 1 || t === 2 || t === null) {
         player.team = t;
+        say(room, t === null ? `${player.name} is now spectating` : `${player.name} joined Team ${t === 1 ? 'A' : 'B'}`);
         broadcast(room);
       }
     });
@@ -350,6 +382,25 @@ export function registerSocketHandlers(io: Server): void {
       broadcast(room);
     });
 
+    socket.on('chat:send', (data: { text?: unknown }) => {
+      const found = findBySocket(socket);
+      if (!found) return;
+      const { room, player } = found;
+      if (room.status !== 'lobby' && room.status !== 'finished') return; // closed during matches
+      const text = String(data?.text ?? '')
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, CHAT_MAX_LEN);
+      if (!text) return;
+      const now = Date.now();
+      const recent = (chatTimes.get(player) ?? []).filter((t) => now - t < CHAT_WINDOW_MS);
+      if (recent.length >= CHAT_MAX_PER_WINDOW) return; // rate limit
+      recent.push(now);
+      chatTimes.set(player, recent);
+      addChat(room, { kind: 'user', text, name: player.name, team: player.team, playerId: player.id });
+    });
+    
     // ----- bots (host, lobby only) -----
     socket.on('bot:add', (data: { team?: unknown; wpm?: number; accuracy?: number }) => {
       const found = findBySocket(socket);

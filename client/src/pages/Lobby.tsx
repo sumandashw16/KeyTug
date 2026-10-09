@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import GameSettings from '../components/GameSettings';
 import { BotConfig } from '../hooks/useRoom';
-import { PublicPlayer, RoomState, Team } from '../types';
 import { BOT_PRESETS, DEFAULT_PRESET } from '../utils/botPresets';
 import { round1 } from '../utils/ropeMath';
+import Chat from '../components/Chat';
+import { ChatMessage, PublicPlayer, RoomState, Team } from '../types';
 
 interface Props {
   state: RoomState;
@@ -15,10 +16,12 @@ interface Props {
   onRemoveBot: (playerId: string) => void;
   onStart: () => void;
   onLeave: () => void;
+  chat: ChatMessage[];              
+  onChat: (text: string) => void; 
 }
 
 export default function Lobby({
-  state, onSettings, onTeam, onWeight, onAddBot, onUpdateBot, onRemoveBot, onStart, onLeave,
+  state, onSettings, onTeam, onWeight, onAddBot, onUpdateBot, onRemoveBot, onStart, onLeave, chat, onChat
 }: Props) {
   const isHost = state.hostId === state.you;
   const [copied, setCopied] = useState(false);
@@ -163,7 +166,7 @@ export default function Lobby({
         editable={isHost}
         onChange={onSettings}
       />
-
+      <Chat messages={chat} myId={state.you} onSend={onChat} />
       <div className="row">
         {isHost ? (
           <button className="btn primary" disabled={!ready} onClick={onStart}>

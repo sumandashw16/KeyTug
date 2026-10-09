@@ -5,9 +5,10 @@ import Scoreboard from '../components/Scoreboard';
 import TeamPanel from '../components/TeamPanel';
 import TypingArea from '../components/TypingArea';
 import { serverNow } from '../socket/socket';
-import { RoomState } from '../types';
 import { ropePosition, teamScore } from '../utils/ropeMath';
 import { playLose, playWin } from '../utils/sound';
+import Chat from '../components/Chat';
+import { ChatMessage, RoomState } from '../types';
 
 interface Props {
   state: RoomState;
@@ -16,6 +17,8 @@ interface Props {
   onPlayAgain: () => void;
   onLobby: () => void;
   onLeave: () => void;
+  chat: ChatMessage[];
+  onChat: (text: string) => void;
 }
 
 const fmtTime = (ms: number) => {
@@ -23,7 +26,7 @@ const fmtTime = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-export default function Game({ state, text, onProgress, onPlayAgain, onLobby, onLeave }: Props) {
+export default function Game({ state, text, onProgress, onPlayAgain, onLobby, onLeave, chat, onChat }: Props) {
   const me = state.players.find((p) => p.id === state.you);
   const myTeam = me?.team ?? null;
   const isHost = state.hostId === state.you;
@@ -149,6 +152,7 @@ export default function Game({ state, text, onProgress, onPlayAgain, onLobby, on
           isHost={isHost}
           onPlayAgain={onPlayAgain}
           onLobby={onLobby}
+          chat={<Chat messages={chat} myId={state.you} onSend={onChat} collapsible />}
         />
       )}
     </div>

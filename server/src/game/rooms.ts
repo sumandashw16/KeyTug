@@ -69,6 +69,8 @@ export function createRoom(): Room {
     winner: null,
     finalDifference: 0,
     botSeq: 0,
+    chat: [],
+    chatSeq: 0,
     countdownTimer: null,
     cleanupTimer: null,
     botTimer: null,
