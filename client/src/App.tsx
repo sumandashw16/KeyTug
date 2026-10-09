@@ -1,10 +1,13 @@
 import { useRoom } from './hooks/useRoom';
+import { useAuth } from './hooks/useAuth';
+import AccountBar from './components/AccountBar';
 import Home from './pages/Home';
 import Lobby from './pages/Lobby';
 import Game from './pages/Game';
 
 export default function App() {
   const room = useRoom();
+  const auth = useAuth();
 
   if (!room.ready) {
     return (
@@ -18,7 +21,21 @@ export default function App() {
     <>
       {!room.connected && <div className="banner">Connection lost — reconnecting…</div>}
       {!room.state ? (
-        <Home onCreate={room.createRoom} onJoin={room.joinRoom} error={room.error} />
+        <>
+          <AccountBar
+            user={auth.user}
+            enabled={auth.enabled}
+            onLogin={auth.login}
+            onSignup={auth.signup}
+            onLogout={auth.logout}
+          />
+          <Home
+            onCreate={room.createRoom}
+            onJoin={room.joinRoom}
+            error={room.error}
+            loggedIn={!!auth.user}
+          />
+        </>
       ) : room.state.status === 'lobby' ? (
         <Lobby
           state={room.state}

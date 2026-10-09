@@ -33,6 +33,9 @@ const botParams = (raw: { wpm?: unknown; accuracy?: unknown } | undefined) => ({
   wpm: clampBotWpm(Number(raw?.wpm) || 55),
   accuracy: clampBotAccuracy(Number(raw?.accuracy) || 95),
 });
+/** Logged-in users always play under their account name. */
+const displayName = (socket: Socket, raw: unknown, fallback: string) =>
+  (socket.data.user?.username as string | undefined) ?? cleanName(raw, fallback);
 
 /** seconds in, seconds out. 0 = no limit, otherwise 15s..60min */
 const clampTimeLimit = (s: number) => (s <= 0 ? 0 : Math.min(3600, Math.max(15, Math.round(s))));
@@ -298,7 +301,7 @@ export function registerSocketHandlers(io: Server): void {
       (data: { name?: string; bot?: { wpm?: number; accuracy?: number } }, ack: unknown) => {
         leaveRoom(socket);
         const room = createRoom();
-        const player = createPlayer(socket.id, cleanName(data?.name, 'Player 1'), 1);
+        const player = createPlayer(socket.id, displayName(socket, data?.name, 'Player 1'), 1)
         room.players.push(player);
         if (data?.bot) {
           const b = botParams(data.bot);
@@ -319,7 +322,7 @@ export function registerSocketHandlers(io: Server): void {
       if (room.players.length >= MAX_PLAYERS) return reply(ack, { ok: false, error: 'Room is full' });
       leaveRoom(socket);
       const humans = room.players.filter((p) => !p.isBot).length;
-      const player = createPlayer(socket.id, cleanName(data?.name, `Player ${humans + 1}`), smallerTeam(room));
+      const player = createPlayer(socket.id, displayName(socket, data?.name, `Player ${humans + 1}`), smallerTeam(room));
       room.players.push(player);
       attach(socket, room, player);
       socket.emit('chat:history', room.chat);

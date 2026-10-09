@@ -7,9 +7,10 @@ interface Props {
   onCreate: (name: string, bot?: BotConfig) => void;
   onJoin: (code: string, name: string) => void;
   error: string | null;
+  loggedIn: boolean;
 }
 
-export default function Home({ onCreate, onJoin, error }: Props) {
+export default function Home({ onCreate, onJoin, error, loggedIn }: Props) {
   const [name, setName] = useState('');
   const [level, setLevel] = useState(DEFAULT_PRESET.id);
   const [code, setCode] = useState('');
@@ -35,16 +36,18 @@ export default function Home({ onCreate, onJoin, error }: Props) {
         <Rope position={pos} lead={0} showLead={false} />
       </div>
 
-      <div className="name-row">
-        <label>YOUR NAME</label>
-        <input
-          className="name-input"
-          maxLength={14}
-          placeholder="PLAYER"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </div>
+      {!loggedIn && (
+        <div className="name-row">
+          <label>YOUR NAME</label>
+          <input
+            className="name-input"
+            maxLength={14}
+            placeholder="PLAYER"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+      )}
 
       <h2 className="section-title">CHOOSE HOW TO PLAY</h2>
       <div className="modes">

@@ -490,3 +490,23 @@ body::before {
   background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); outline: none;
 }
 .chat-input input:focus { border-color: var(--p1); }
+
+/* ---------- accounts ---------- */
+.account-bar {
+  position: fixed; top: 14px; right: 18px; z-index: 20; display: flex; align-items: center; gap: 12px;
+  font: 700 12px var(--sans); letter-spacing: 0.15em; padding: 8px 14px; border-radius: 999px;
+  background: rgba(12, 16, 32, 0.85); border: 1px solid var(--line);
+}
+.account-bar b { color: var(--p1); font-family: var(--mono); }
+.auth-card { width: min(380px, 92vw); }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.auth-tabs button {
+  font: 800 12px var(--sans); letter-spacing: 0.2em; padding: 10px; border-radius: 10px; cursor: pointer;
+  color: var(--muted); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line);
+}
+.auth-tabs button.on { color: #06101c; background: #fff; }
+.auth-input {
+  font: 700 15px var(--mono); letter-spacing: 0.1em; padding: 12px; border-radius: 12px; color: var(--text);
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); outline: none; text-align: center;
+}
+.auth-input:focus { border-color: var(--p1); }
