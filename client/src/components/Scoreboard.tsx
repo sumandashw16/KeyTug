@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { PublicPlayer, Team } from '../types';
+import { EndReason, PublicPlayer, Team } from '../types';
 import { round1 } from '../utils/ropeMath';
 import { calcAccuracy, calcWpm } from '../utils/stats';
 
 interface Props {
   players: PublicPlayer[];
-  winner: Team;
+  winner: Team | null; // null = draw
+  endReason: EndReason;
   myId: string;
   myTeam: Team | null;
   elapsed: number;
@@ -40,7 +41,7 @@ function CountUp({ to, delay = 0, ms = 900, decimals = 0 }: { to: number; delay?
 }
 
 export default function Scoreboard({
-  players, winner, myId, myTeam, elapsed, finalDifference, isHost, onPlayAgain, onLobby,
+  players, winner, endReason, myId, myTeam, elapsed, finalDifference, isHost, onPlayAgain, onLobby,
 }: Props) {
   const build = (team: Team): Row[] =>
     players
@@ -53,8 +54,8 @@ export default function Scoreboard({
       .sort((a, b) => b.perf - a.perf || b.p.progress - a.p.progress);
 
   const rowsByTeam: Record<Team, Row[]> = { 1: build(1), 2: build(2) };
-  const loser: Team = winner === 1 ? 2 : 1;
-  const order: Team[] = [winner, loser];
+  const draw = winner === null;
+  const order: Team[] = draw ? [1, 2] : [winner, winner === 1 ? 2 : 1];
 
   // Team MVP = top of each team. Match MVP = best of those two.
   const teamMvp: Record<Team, string | null> = {
@@ -68,17 +69,25 @@ export default function Scoreboard({
 
   const iWon = myTeam !== null && myTeam === winner;
   const teamName = (t: Team) => (t === 1 ? 'TEAM A' : 'TEAM B');
-  const banner = myTeam === null ? `${teamName(winner)} WINS` : iWon ? 'VICTORY' : 'DEFEAT';
+  const banner = draw
+    ? 'DRAW'
+    : myTeam === null
+    ? `${teamName(winner)} WINS`
+    : iWon
+    ? 'VICTORY'
+    : 'DEFEAT';
+  const bannerClass = draw || myTeam === null ? 'neutral' : iWon ? 'win' : 'lose';
+  const byTime = endReason === 'time' ? ' when time ran out' : '';
 
   let n = 0; // running row index for staggered animation
   const box = (team: Team) => {
     const rows = rowsByTeam[team];
-    const won = team === winner;
+    const won = !draw && team === winner;
     const total = rows.reduce((s, r) => s + r.points, 0);
     return (
-      <div className={`sb-box ${won ? 'won' : 'lost'} sb-t${team}`} key={team}>
+      <div className={`sb-box ${draw ? 'draw' : won ? 'won' : 'lost'} sb-t${team}`} key={team}>
         <div className="sb-head">
-          <span className="sb-result">{won ? 'WINNERS' : 'LOSERS'}</span>
+          <span className="sb-result">{draw ? 'DRAW' : won ? 'WINNERS' : 'LOSERS'}</span>
           <span className="sb-team">{teamName(team)}</span>
           <span className="sb-total">{round1(total)} PTS</span>
         </div>
@@ -127,10 +136,16 @@ export default function Scoreboard({
   return (
     <div className="overlay sb-overlay">
       <div className="scoreboard">
-        <div className={`sb-banner ${myTeam === null ? 'neutral' : iWon ? 'win' : 'lose'}`}>
+        <div className={`sb-banner ${bannerClass}`}>
           <h2>{banner}</h2>
           <p>
-            {teamName(winner)} won by <b>{finalDifference}</b> points
+            {draw ? (
+              <>Time ran out with the scores level</>
+            ) : (
+              <>
+                {teamName(winner)} won by <b>{finalDifference}</b> points{byTime}
+              </>
+            )}
           </p>
         </div>
 

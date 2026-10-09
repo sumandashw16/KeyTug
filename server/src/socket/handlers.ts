@@ -1,6 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { randomUUID } from 'crypto';
-import { checkWinner, clampWeight, clampWinningDifference } from '../game/logic';
+import { checkWinner, clampWeight, clampWinningDifference, teamScore } from '../game/logic';
 import { clampBotAccuracy, clampBotWpm, resetBots, stepBots } from '../game/bots';
 import { createBot, createPlayer, createRoom, hostOf, resetToLobby, rooms, toState } from '../game/rooms';
 import { generateText } from '../game/text';
@@ -12,6 +12,7 @@ const BURST_ALLOWANCE = 40;
 const EMPTY_ROOM_TTL_MS = 2 * 60 * 1000;
 const MAX_PLAYERS = 16; // humans + bots
 const BOT_TICK_MS = 50;
+const TIME_GRACE_MS = 250; // lets in-flight keystrokes land at the buzzer
 const TEAMS: Team[] = [1, 2];
 
 const reply = (ack: unknown, payload: unknown) => {
@@ -28,6 +29,9 @@ const botParams = (raw: { wpm?: unknown; accuracy?: unknown } | undefined) => ({
   accuracy: clampBotAccuracy(Number(raw?.accuracy) || 95),
 });
 
+/** seconds in, seconds out. 0 = no limit, otherwise 15s..60min */
+const clampTimeLimit = (s: number) => (s <= 0 ? 0 : Math.min(3600, Math.max(15, Math.round(s))));
+
 export function registerSocketHandlers(io: Server): void {
   // ---------- helpers ----------
   const broadcast = (room: Room) => {
@@ -41,6 +45,20 @@ export function registerSocketHandlers(io: Server): void {
     room.countdownTimer = null;
   };
 
+  const clearTimeLimit = (room: Room) => {
+    if (room.timeTimer) clearTimeout(room.timeTimer);
+    room.timeTimer = null;
+  };
+
+  /** Stop the round clock and remember how much time is left. */
+  const freezeTimer = (room: Room, now: number) => {
+    clearTimeLimit(room);
+    if (room.deadline !== null) {
+      room.remainingMs = Math.max(0, room.deadline - Math.max(now, room.goAt ?? now));
+      room.deadline = null;
+    }
+  };
+
   const stopBots = (room: Room) => {
     if (room.botTimer) clearInterval(room.botTimer);
     room.botTimer = null;
@@ -48,6 +66,7 @@ export function registerSocketHandlers(io: Server): void {
 
   const destroyRoom = (room: Room) => {
     clearCountdown(room);
+    clearTimeLimit(room);
     stopBots(room);
     if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
     rooms.delete(room.id);
@@ -92,17 +111,52 @@ export function registerSocketHandlers(io: Server): void {
     updateCleanup(room);
   };
 
-  /** Server decides the winner. Returns true if the round just ended. */
+  /** Server decides the winner by lead. Returns true if the round just ended. */
   const finishIfWon = (room: Room, now: number): boolean => {
     const result = checkWinner(room.players, room.winningDifference);
     if (!result.winner) return false;
     clearCountdown(room);
     stopBots(room);
+    freezeTimer(room, now);
     room.status = 'finished';
     room.winner = result.winner;
+    room.endReason = 'lead';
     room.finalDifference = Math.round(Math.abs(result.difference) * 10) / 10;
     room.endedAt = now;
     return true;
+  };
+
+  /** Time ran out: higher weighted score wins, exactly level = draw. */
+  const finishByTime = (room: Room) => {
+    if (room.status !== 'playing' && room.status !== 'countdown') return;
+    const endAt = room.deadline ?? Date.now();
+    const diff = teamScore(room.players, 1) - teamScore(room.players, 2);
+    clearCountdown(room);
+    clearTimeLimit(room);
+    stopBots(room);
+    room.deadline = null;
+    room.remainingMs = 0;
+    room.status = 'finished';
+    room.winner = Math.abs(diff) < 1e-9 ? null : diff > 0 ? 1 : 2;
+    room.endReason = 'time';
+    room.finalDifference = Math.round(Math.abs(diff) * 10) / 10;
+    room.endedAt = endAt;
+    broadcast(room);
+  };
+
+  /** (Re)start the round clock from goAt using the remaining time. */
+  const armTimer = (room: Room) => {
+    clearTimeLimit(room);
+    if (room.timeLimitMs <= 0 || room.goAt === null) {
+      room.deadline = null;
+      return;
+    }
+    room.deadline = room.goAt + room.remainingMs;
+    const delay = Math.max(0, room.deadline - Date.now()) + TIME_GRACE_MS;
+    room.timeTimer = setTimeout(() => {
+      room.timeTimer = null;
+      finishByTime(room);
+    }, delay);
   };
 
   const startBots = (room: Room) => {
@@ -128,9 +182,11 @@ export function registerSocketHandlers(io: Server): void {
     ) {
       clearCountdown(room);
       stopBots(room);
+      const now = Date.now();
+      freezeTimer(room, now);
       room.pausedFrom = room.status;
       room.status = 'paused';
-      room.pausedAt = Date.now();
+      room.pausedAt = now;
     }
     updateCleanup(room);
     broadcast(room);
@@ -147,6 +203,7 @@ export function registerSocketHandlers(io: Server): void {
         broadcast(room);
       }
     }, COUNTDOWN_MS);
+    armTimer(room);
     startBots(room);
   };
 
@@ -158,10 +215,12 @@ export function registerSocketHandlers(io: Server): void {
     }
     room.text = generateText();
     room.winner = null;
+    room.endReason = null;
     room.finalDifference = 0;
     room.endedAt = null;
     room.pausedAt = null;
     room.pausedFrom = null;
+    room.remainingMs = room.timeLimitMs;
     beginCountdown(room);
     room.clockStart = room.goAt;
     io.to(room.id).emit('game:text', room.text); // text first, then state
@@ -171,7 +230,7 @@ export function registerSocketHandlers(io: Server): void {
   const resumeRound = (room: Room) => {
     const from = room.pausedFrom;
     const pausedAt = room.pausedAt;
-    beginCountdown(room);
+    beginCountdown(room); // re-arms the clock with the time that was left
     if (from === 'playing' && room.clockStart !== null && pausedAt !== null && room.goAt !== null) {
       room.clockStart += room.goAt - pausedAt; // exclude paused time from WPM
     } else {
@@ -253,13 +312,16 @@ export function registerSocketHandlers(io: Server): void {
 
     socket.on('room:leave', () => leaveRoom(socket));
 
-    socket.on('room:settings', (data: { winningDifference?: number }) => {
+    socket.on('room:settings', (data: { winningDifference?: number; timeLimit?: number }) => {
       const found = findBySocket(socket);
       if (!found) return;
       const { room, player } = found;
       if (!isHost(room, player) || room.status !== 'lobby') return;
       if (typeof data?.winningDifference === 'number' && Number.isFinite(data.winningDifference)) {
         room.winningDifference = clampWinningDifference(data.winningDifference);
+      }
+      if (typeof data?.timeLimit === 'number' && Number.isFinite(data.timeLimit)) {
+        room.timeLimitMs = clampTimeLimit(data.timeLimit) * 1000;
       }
       broadcast(room);
     });
@@ -359,7 +421,7 @@ export function registerSocketHandlers(io: Server): void {
       broadcast(room);
     });
 
-    // Host starts another round with the same teams, bots and weights.
+    // Host starts another round with the same teams, bots, weights and time limit.
     socket.on('game:again', () => {
       const found = findBySocket(socket);
       if (!found) return;

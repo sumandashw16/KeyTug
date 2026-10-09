@@ -75,9 +75,10 @@ export function useRoom() {
   }, []);
 
   const updateSettings = useCallback(
-    (patch: { winningDifference?: number }) => socket.emit('room:settings', patch),
+    (patch: { winningDifference?: number; timeLimit?: number }) => socket.emit('room:settings', patch),
     []
   );
+  
   const setTeam = useCallback((team: Team | null) => socket.emit('room:team', { team }), []);
   const setWeight = useCallback(
     (playerId: string, weight: number) => socket.emit('room:weight', { playerId, weight }),

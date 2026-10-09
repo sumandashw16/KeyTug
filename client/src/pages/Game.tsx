@@ -18,6 +18,11 @@ interface Props {
   onLeave: () => void;
 }
 
+const fmtTime = (ms: number) => {
+  const s = Math.ceil(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
 export default function Game({ state, text, onProgress, onPlayAgain, onLobby, onLeave }: Props) {
   const me = state.players.find((p) => p.id === state.you);
   const myTeam = me?.team ?? null;
@@ -58,7 +63,7 @@ export default function Game({ state, text, onProgress, onPlayAgain, onLobby, on
   }, [state.status, myTeam, onProgress]);
 
   useEffect(() => {
-    if (state.status === 'finished' && myTeam) (state.winner === myTeam ? playWin : playLose)();
+    if (state.status === 'finished' && myTeam && state.winner) (state.winner === myTeam ? playWin : playLose)();
   }, [state.status, state.winner, myTeam]);
 
   // ----- derived values (own progress comes from local state = instant) -----
@@ -74,11 +79,21 @@ export default function Game({ state, text, onProgress, onPlayAgain, onLobby, on
   const msToGo = state.goAt !== null ? state.goAt - now : 0;
   const showCountdown = state.status === 'countdown' || (state.status === 'playing' && msToGo > -700);
 
+  // ----- time limit -----
+  const timed = state.timeLimitMs > 0;
+  const running = state.deadline !== null && (state.status === 'playing' || state.status === 'countdown');
+  const timeLeftMs = running
+    ? Math.min(state.timeLimitMs, Math.max(0, (state.deadline as number) - now))
+    : state.remainingMs;
+
   return (
     <div className="screen game">
       <header className="game-top">
         <span className="chip">ROOM {state.roomId}</span>
         <span className="chip">{state.winningDifference} POINTS AHEAD TO WIN</span>
+        <span className={`chip timer ${timed && timeLeftMs <= 10000 && state.status === 'playing' ? 'low' : ''}`}>
+          {timed ? `TIME ${fmtTime(timeLeftMs)}` : 'NO TIME LIMIT'}
+        </span>
         <button className="link" onClick={onLeave}>LEAVE</button>
       </header>
 
@@ -110,7 +125,9 @@ export default function Game({ state, text, onProgress, onPlayAgain, onLobby, on
         <div className="overlay">
           <div className="card">
             <h2>TEAM DISCONNECTED</h2>
-            <p className="muted">A whole team has no players connected. Waiting for someone to reconnect...</p>
+            <p className="muted">
+              A whole team has no players connected. The clock is paused. Waiting for someone to reconnect...
+            </p>
             {isHost ? (
               <button className="btn" onClick={onLobby}>RETURN TO LOBBY</button>
             ) : (
@@ -120,10 +137,11 @@ export default function Game({ state, text, onProgress, onPlayAgain, onLobby, on
         </div>
       )}
 
-      {state.status === 'finished' && state.winner && (
+      {state.status === 'finished' && (
         <Scoreboard
           players={state.players}
           winner={state.winner}
+          endReason={state.endReason}
           myId={state.you}
           myTeam={myTeam}
           elapsed={elapsed}

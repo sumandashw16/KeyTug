@@ -444,3 +444,9 @@ body::before {
 .sb-actions { padding: 6px 0 20px; }
 
 @keyframes sbIn { to { opacity: 1; transform: none; } }
+
+/* ---------- time limit ---------- */
+.chip.timer { font-family: var(--mono); color: var(--text); }
+.chip.timer.low { color: var(--err); border-color: var(--err); animation: pulse2 0.6s ease-in-out infinite; }
+.sb-box.draw .sb-result { color: var(--muted); }
+@keyframes pulse2 { 50% { box-shadow: 0 0 16px rgba(255, 77, 94, 0.7); } }

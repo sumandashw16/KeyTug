@@ -7,7 +7,7 @@ import { round1 } from '../utils/ropeMath';
 
 interface Props {
   state: RoomState;
-  onSettings: (patch: { winningDifference?: number }) => void;
+  onSettings: (patch: { winningDifference?: number; timeLimit?: number }) => void;
   onTeam: (team: Team | null) => void;
   onWeight: (playerId: string, weight: number) => void;
   onAddBot: (team: Team, cfg: BotConfig) => void;
@@ -159,6 +159,7 @@ export default function Lobby({
 
       <GameSettings
         winningDifference={state.winningDifference}
+        timeLimit={state.timeLimitMs / 1000}
         editable={isHost}
         onChange={onSettings}
       />

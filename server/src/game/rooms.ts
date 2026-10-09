@@ -57,6 +57,10 @@ export function createRoom(): Room {
     pausedFrom: null,
     players: [],
     winningDifference: 100,
+    timeLimitMs: 180_000, // default 3 minutes (0 = no limit)
+    remainingMs: 0,
+    deadline: null,
+    endReason: null,
     text: '',
     goAt: null,
     clockStart: null,
@@ -68,6 +72,7 @@ export function createRoom(): Room {
     countdownTimer: null,
     cleanupTimer: null,
     botTimer: null,
+    timeTimer: null,
   };
   rooms.set(room.id, room);
   return room;
@@ -82,6 +87,8 @@ export function resetToLobby(room: Room): void {
   room.countdownTimer = null;
   if (room.botTimer) clearInterval(room.botTimer);
   room.botTimer = null;
+  if (room.timeTimer) clearTimeout(room.timeTimer);
+  room.timeTimer = null;
   room.status = 'lobby';
   room.pausedFrom = null;
   room.text = '';
@@ -91,6 +98,9 @@ export function resetToLobby(room: Room): void {
   room.endedAt = null;
   room.winner = null;
   room.finalDifference = 0;
+  room.deadline = null;
+  room.remainingMs = 0;
+  room.endReason = null;
   for (const p of room.players) {
     p.progress = 0;
     p.errors = 0;
@@ -118,6 +128,10 @@ export function toState(room: Room, you: string): RoomState {
       botAccuracy: p.botAccuracy,
     })),
     winningDifference: room.winningDifference,
+    timeLimitMs: room.timeLimitMs,
+    remainingMs: room.remainingMs,
+    deadline: room.deadline,
+    endReason: room.endReason,
     goAt: room.goAt,
     clockStart: room.clockStart,
     endedAt: room.endedAt,

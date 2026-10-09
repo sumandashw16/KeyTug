@@ -1,5 +1,6 @@
 export type Team = 1 | 2;
 export type Status = 'lobby' | 'countdown' | 'playing' | 'paused' | 'finished';
+export type EndReason = 'lead' | 'time' | null;
 
 export interface PublicPlayer {
   id: string;
@@ -23,6 +24,10 @@ export interface RoomState {
   pausedFrom: 'countdown' | 'playing' | null;
   players: PublicPlayer[];
   winningDifference: number;
+  timeLimitMs: number;
+  remainingMs: number;
+  deadline: number | null;
+  endReason: EndReason;
   goAt: number | null;
   clockStart: number | null;
   endedAt: number | null;

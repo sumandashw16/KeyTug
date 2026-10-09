@@ -1,5 +1,6 @@
 export type Team = 1 | 2;
 export type Status = 'lobby' | 'countdown' | 'playing' | 'paused' | 'finished';
+export type EndReason = 'lead' | 'time' | null;
 
 export interface Player {
   id: string; // public id
@@ -24,17 +25,22 @@ export interface Room {
   pausedFrom: 'countdown' | 'playing' | null;
   players: Player[]; // join order
   winningDifference: number; // in weighted points
+  timeLimitMs: number; // 0 = no limit
+  remainingMs: number; // time left while the clock is not running
+  deadline: number | null; // server time the round ends (only while running)
+  endReason: EndReason;
   text: string;
   goAt: number | null;
   clockStart: number | null;
   pausedAt: number | null;
   endedAt: number | null;
-  winner: Team | null;
+  winner: Team | null; // null + finished = draw
   finalDifference: number;
   botSeq: number;
   countdownTimer: NodeJS.Timeout | null;
   cleanupTimer: NodeJS.Timeout | null;
   botTimer: NodeJS.Timeout | null;
+  timeTimer: NodeJS.Timeout | null;
 }
 
 export interface PublicPlayer {
@@ -59,6 +65,10 @@ export interface RoomState {
   pausedFrom: 'countdown' | 'playing' | null;
   players: PublicPlayer[];
   winningDifference: number;
+  timeLimitMs: number;
+  remainingMs: number;
+  deadline: number | null;
+  endReason: EndReason;
   goAt: number | null;
   clockStart: number | null;
   endedAt: number | null;
