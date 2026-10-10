@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 // ASCII only, so every character is typeable on a normal keyboard.
 const SENTENCES = [
   'The quick brown fox jumps over the lazy dog while the world continues to move forward.',
@@ -32,6 +35,68 @@ const SENTENCES = [
   'Focus on the rhythm of your breathing and the rhythm of your typing will follow.',
 ];
 
+// ---------- sentence generator (thousands of unique combinations) ----------
+const SUBJECTS = [
+  'The old fisherman', 'A curious child', 'Our neighbor', 'The quiet librarian', 'A tired traveler',
+  'The young chef', 'My grandmother', 'The village doctor', 'A stubborn mule', 'The night watchman',
+  'Two clever sparrows', 'The new teacher', 'An honest merchant', 'The lonely lighthouse keeper',
+  'A group of hikers', 'The famous painter', 'Our captain', 'A sleepy cat', 'The tall stranger', 'The mayor',
+];
+const ACTIONS = [
+  'carried a heavy basket of apples', 'forgot the name of the street', 'repaired the broken clock',
+  'followed the winding river', 'wrote a long letter to an old friend', 'climbed the steep stone stairs',
+  'baked a loaf of dark bread', 'counted the stars from the roof', 'argued about the price of fish',
+  'collected smooth stones from the beach', 'opened the window to let in the breeze',
+  'painted the fence a bright shade of blue', 'practiced the same song all afternoon',
+  'searched every shelf for a missing book', 'watched the storm roll over the hills',
+  'planted seeds along the garden wall', 'sharpened every pencil on the desk', 'told a story nobody believed',
+  'crossed the bridge before the rain began', 'waited patiently for the last bus',
+];
+const PLACES = [
+  'near the old harbor', 'behind the town hall', 'beside a quiet pond', 'on the edge of the forest',
+  'inside the crowded station', 'under a pale winter sky', 'across the empty square',
+  'at the top of the hill', 'along the dusty road', 'in the middle of the night',
+  'before the market opened', 'while the village slept', 'as the sun went down',
+  'after a long day of work', 'during the first snow of the year', 'just as the bells began to ring',
+];
+const ENDINGS = [
+  'and nobody asked why', 'and the whole town noticed', 'without saying a single word',
+  'with more care than usual', 'just like every other day', 'though the weather said otherwise',
+  'and then went home smiling', 'while the lamps flickered on', 'and the work was finally done',
+  'as if time had all the patience in the world', 'and felt strangely proud',
+];
+
+const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+function makeSentence(): string {
+  const r = Math.random();
+  const core = `${pick(SUBJECTS)} ${pick(ACTIONS)} ${pick(PLACES)}`;
+  if (r < 0.4) return `${core}.`;
+  if (r < 0.8) return `${core}, ${pick(ENDINGS)}.`;
+  return `${pick(PLACES).replace(/^./, (c) => c.toUpperCase())}, ${pick(SUBJECTS).toLowerCase()} ${pick(ACTIONS)} ${pick(ENDINGS)}.`;
+}
+
+// ---------- optional corpus file: server/src/game/corpus.txt (one sentence per line) ----------
+let corpus: string[] | null = null;
+function loadCorpus(): string[] {
+  if (corpus) return corpus;
+  corpus = [];
+  try {
+    // works from both src/ (dev) and dist/ (production): both resolve to server/src/game/corpus.txt
+    const file = path.resolve(__dirname, '../../src/game/corpus.txt');
+    if (fs.existsSync(file)) {
+      corpus = fs
+        .readFileSync(file, 'utf8')
+        .split(/\r?\n/)
+        .map((l) => l.replace(/\s+/g, ' ').trim())
+        .filter((l) => l.length >= 30 && l.length <= 160 && /^[\x20-\x7e]+$/.test(l));
+    }
+  } catch {
+    corpus = [];
+  }
+  return corpus;
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -41,11 +106,31 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-/** One shared text per round; both players always get this exact string. */
+/** One shared text per round; both players always get this exact string. No sentence repeats within a round. */
 export function generateText(minLength = 14000): string {
-  let out = '';
-  while (out.length < minLength) {
-    for (const s of shuffle(SENTENCES)) out += s + ' ';
+  const base = [...SENTENCES, ...loadCorpus()];
+  const used = new Set<string>();
+  const out: string[] = [];
+  let length = 0;
+
+  const add = (s: string) => {
+    if (used.has(s)) return false;
+    used.add(s);
+    out.push(s);
+    length += s.length + 1;
+    return true;
+  };
+
+  // Mix real sentences and generated ones, using each only once.
+  const deck = shuffle(base);
+  let i = 0;
+  while (length < minLength) {
+    const useBase = i < deck.length && Math.random() < 0.35;
+    if (useBase) add(deck[i++]);
+    else {
+      let tries = 0;
+      while (!add(makeSentence()) && tries++ < 20);
+    }
   }
-  return out.trimEnd();
+  return out.join(' ');
 }
